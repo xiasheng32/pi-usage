@@ -1,0 +1,58 @@
+{
+  "name": "pi-usage",
+  "version": "1.0.0",
+  "description": "Pi 扩展：按当前模型显示 DeepSeek、Kimi 余额与 Codex 额度，并提供会话内 Fast 模式。 Pi extension: DeepSeek and Kimi balances plus Codex quota for the active model, with session-local Fast mode.",
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "usage",
+    "balance",
+    "quota",
+    "hud"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xiasheng32/pi-usage.git"
+  },
+  "homepage": "https://github.com/xiasheng32/pi-usage#readme",
+  "bugs": {
+    "url": "https://github.com/xiasheng32/pi-usage/issues"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "files": [
+    "extensions/index.ts",
+    "src/",
+    "tsconfig.json",
+    "README.md",
+    "README.en.md",
+    "CHANGELOG.md",
+    "CHANGELOG.en.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "1.2.0",
+    "@earendil-works/pi-coding-agent": "1.2.0",
+    "@earendil-works/pi-tui": "1.2.0",
+    "@types/node": "22.19.0",
+    "typescript": "5.9.3"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  }
+}
