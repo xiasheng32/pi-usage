@@ -2,7 +2,9 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-> A [pi](https://pi.dev) extension that shows DeepSeek or Kimi account balances — or Codex subscription quota — for the active model, plus a session-local `/fast` switch.
+> **中文：** 一个 [pi](https://pi.dev) 扩展：按当前模型显示 DeepSeek / Kimi 账户余额或 Codex 订阅额度，并提供会话内的 `/fast` 开关。
+>
+> **English:** A [pi](https://pi.dev) extension that shows DeepSeek or Kimi account balances—or Codex subscription quota—for the active model, and adds a session-local `/fast` switch.
 
 `pi-usage` merges the former `pi-kimi`, `pi-deepseek` and `pi-codex` extensions into one package: a single footer status key (`pi-usage`) and a single detail entry point (`/pi-usage`) whose content follows the provider of the current model. The three old repositories are archived; their history and documentation remain on GitHub.
 

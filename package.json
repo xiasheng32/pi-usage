@@ -1,7 +1,7 @@
 {
   "name": "pi-usage",
   "version": "1.0.0",
-  "description": "Pi 扩展：按当前模型显示 DeepSeek、Kimi 余额与 Codex 额度，并提供会话内 Fast 模式。 Pi extension: DeepSeek and Kimi balances plus Codex quota for the active model, with session-local Fast mode.",
+  "description": "Pi 扩展：按当前模型显示 DeepSeek / Kimi 余额或 Codex 额度，并提供 /pi-usage 与 /fast。\nPi extension: show DeepSeek / Kimi balances or Codex quota for the active model, with /pi-usage and /fast.",
   "type": "module",
   "keywords": [
     "pi-package",

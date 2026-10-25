@@ -2,7 +2,9 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-> 一个 [pi](https://pi.dev) 扩展：按当前模型自动显示 DeepSeek / Kimi 账户余额或 Codex 订阅额度，并提供会话内的 `/fast` 开关。
+> **中文：** 一个 [pi](https://pi.dev) 扩展：按当前模型显示 DeepSeek / Kimi 账户余额或 Codex 订阅额度，并提供会话内的 `/fast` 开关。
+>
+> **English:** A [pi](https://pi.dev) extension that shows DeepSeek or Kimi account balances—or Codex subscription quota—for the active model, and adds a session-local `/fast` switch.
 
 `pi-usage` 合并了原 `pi-kimi`、`pi-deepseek` 与 `pi-codex` 三个扩展：只保留**一个**页脚状态键 `pi-usage`、**一个**详情面板入口 `/pi-usage`，面板内容由当前模型所属的 provider 决定。三个旧仓库已归档，历史与文档仍可在 GitHub 查看。
 
