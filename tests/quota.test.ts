@@ -458,7 +458,66 @@ test("progress bars show remaining quota and stay bounded on narrow layouts", ()
 	assert.equal(quotaBar(0, 12), "░".repeat(12));
 	assert.equal(quotaBar(100, 12), "█".repeat(12));
 	assert.equal(quotaBar(50, 12), "█".repeat(6) + "░".repeat(6));
+	assert.equal(quotaBar(100, 100).length, 30, "default callers retain their existing cap");
+	assert.equal(quotaBar(100, 100, true).length, 36);
+	assert.equal(quotaBar(50, 12, true), "█".repeat(6) + "░".repeat(6));
 	assert.match(detailLines(ready(parseQuota(payload(), NOW)), NOW, 12).join("\n"), /[█░]{12}/);
+});
+
+test("compact details opt into wider remaining-only bars without changing default output or state", () => {
+	const state = ready(parseQuota(payload(), NOW));
+	const before = structuredClone(state);
+	const defaults = detailLines(state, NOW, 36);
+	const compact = detailSections(state, NOW, 36, undefined, { compact: true });
+	for (const [index, window] of quotaSnapshot(state).windows.entries()) {
+		assert.match(compact.quota[index * 2], /[█░]{36}  剩余 /);
+		assert.ok(compact.quota[index * 2].includes(`剩余 ${window.remainingPercent}%`));
+		assert.ok(compact.quota[index * 2 + 1].endsWith(localDateTime(present(window.resetAt)).slice(5)));
+	}
+	assert.doesNotMatch(compact.quota.join("\n"), /已用/);
+	assert.deepEqual(detailLines(state, NOW, 36), defaults);
+	assert.match(defaults.join("\n"), /[█░]{30}  剩78% · 已用22%/);
+	assert.deepEqual(state, before);
+});
+
+test("compact dates preserve cross-year, missing and elapsed resets and tiny percentages", () => {
+	const state = ready(parseQuota(payload(), NOW));
+	const windows = quotaSnapshot(state).windows;
+	windows[0].resetAt = new Date(new Date(NOW).getFullYear() + 1, 0, 2, 3, 4).getTime();
+	windows[0].remainingPercent = 0.1;
+	let compact = detailSections(state, NOW, 36, undefined, { compact: true });
+	assert.match(compact.quota[0], /剩余 <1%/);
+	assert.ok(compact.quota[1].endsWith(localDateTime(windows[0].resetAt)));
+	windows[0].resetAt = null;
+	windows[1].resetAt = NOW - 60_000;
+	compact = detailSections(state, NOW, 36, undefined, { compact: true });
+	assert.equal(compact.quota[1], "  ↻ 未知 · 未知");
+	assert.match(compact.quota[3], /^  ↻ 待刷新 · /);
+	assert.doesNotMatch(compact.quota[3], /后重置/);
+});
+
+test("compact card empty states remain distinct from missing records and retain errors and outcomes", () => {
+	const state = { ...ready(parseQuota(payload(), NOW)), resetCredits: {
+		snapshot: parseResetCredits({ available_count: 0, credits: [] }, NOW), stale: false,
+		error: null as QuotaState["error"], retryAt: null as number | null,
+	}, resetUse: undefined as QuotaState["resetUse"] };
+	let compact = detailSections(state, NOW, 36, undefined, { compact: true });
+	assert.equal(compact.resetSummary, "可用 0 张");
+	assert.deepEqual(compact.resets, ["暂无卡片记录"]);
+	assert.match(detailLines(state, NOW).join("\n"), /仅显示接口返回记录/);
+	state.resetCredits.snapshot = parseResetCredits({ credits: [{ status: "unknown" }] }, NOW);
+	compact = detailSections(state, NOW, 36, undefined, { compact: true });
+	assert.equal(compact.resetSummary, "可用 未知");
+	assert.match(compact.resets.join("\n"), /状态未知[\s\S]*有效期未知[\s\S]*不推断完整历史/);
+	state.resetCredits.snapshot = parseResetCredits({ available_count: 0 }, NOW);
+	state.resetCredits.stale = true;
+	state.resetCredits.error = { kind: "timeout" };
+	state.resetCredits.retryAt = NOW + 120_000;
+	state.resetUse = { message: "重置结果不确定，请刷新明细", warning: true };
+	compact = detailSections(state, NOW, 36, undefined, { compact: true });
+	assert.match(compact.resetSummary, /过期缓存/);
+	assert.match(compact.resets.join("\n"), /结果不确定[\s\S]*查询超时[\s\S]*未提供使用记录[\s\S]*重置卡重试/);
+	assert.doesNotMatch(compact.resets.join("\n"), /暂无卡片记录/);
 });
 
 test("card endpoint errors do not hide successfully fetched usage", async () => {
@@ -1073,6 +1132,7 @@ test("reset button reflects usable cards, errors, expiry, cooldown and offline w
 	assert.equal(h.allRequests.length, requests);
 	h.advance(30 * 86400_000);
 	assert.equal(h.controller.getResetButton().enabled, false);
+	assert.equal(h.controller.getResetButton().reason, "no_usable_cards");
 	assert.match(h.controller.getResetButton().hint, /已到期/);
 	h.controller.dispose();
 	assert.equal(h.controller.getResetButton().enabled, false);

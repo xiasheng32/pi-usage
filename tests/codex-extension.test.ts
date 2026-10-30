@@ -677,65 +677,147 @@ test("dashboard orders quota, reset cards with their button, Fast, and a time-on
 	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, fast);
 	const lines = panel.render(68);
 	const text = lines.join("\n");
-	const positions = ["订阅额度", "重置卡", "#1", "#3", "↻ 重置额度 · u", "─ Fast ─", "已开启 · ×2.5", "响应待确认 · 仅本会话", "更新于"].map((part) => text.indexOf(part));
+	const positions = ["订阅额度", "重置卡", "#1", "#3", "[u 重置]", "Fast", "已开启 · ×2.5", "响应待确认 · 仅本会话", "更新于"].map((part) => text.indexOf(part));
 	assert.ok(positions.every((position, index) => position >= 0 && (!index || position > positions[index - 1]!)), text);
 	assert.match(lines[1]!, /🍧 Codex 额度.*PLUS.*可用/);
-	assert.match(text, /剩75% · 已用25%/);
+	assert.match(text, /剩余 75%/);
 	assert.match(text, /到期：2026-10-/);
-	assert.equal(lines.filter((line) => line.includes("重置额度")).length, 1);
+	assert.equal(lines.filter((line) => line.includes("[u 重置]")).length, 1);
 	assert.equal(lines.filter((line) => line.includes("更新于")).length, 1);
 	assert.match(lines.at(-2)!, /更新于 \d{2}:\d{2} · 本机时区/);
-	assert.doesNotMatch(text, /更新：|选卡后确认|不会自动消费|按 u 选卡|\/fast on|当前模型：|请求档位：|Enter\/Esc/);
-	const fastStart = lines.findIndex((line) => line.includes("─ Fast ─"));
-	assert.match(lines[fastStart + 1]!, /已开启 · ×2\.5/);
-	assert.match(lines[fastStart + 2]!, /响应待确认 · 仅本会话/);
+	assert.doesNotMatch(text, /已用|更新：|选卡后确认|不会自动消费|按 u 选卡|\/fast on|当前模型：|请求档位：|Enter\/Esc/);
+	const fastStart = lines.findIndex((line) => line.includes("Fast  "));
+	assert.match(lines[fastStart]!, /已开启 · ×2\.5/);
+	assert.match(lines[fastStart + 1]!, /响应待确认 · 仅本会话/);
 	controller.dispose();
 });
 
-test("headings, body lines and the boxed reset button center on the framed content width", (t: TestContext) => {
+test("zero-card dashboard centers three compact cards, aligned 36-column bars and a simple disabled key", (t: TestContext) => {
 	const now = Date.UTC(2026, 9, 15, 11, 6);
 	t.mock.method(Date, "now", () => now);
 	const h = harness();
-	h.terminal.rows = 60;
-	const state = panelState(now);
+	h.terminal.rows = 32;
+	const state = panelState(now, 0);
+	state.snapshot!.windows[0]!.remainingPercent = 100;
+	state.snapshot!.windows[1]!.remainingPercent = 54;
 	const controller = new QuotaController({ offline: true, resolveAuth: async () => { throw new Error("Unexpected credentials"); } });
 	t.mock.method(controller, "getState", () => state);
-	t.mock.method(controller, "getResetButton", () => ({ enabled: true, phase: "ready" as const, hint: "可选 3 张 · 选卡后确认，不会自动消费" }));
-	const fast = new FastModeController();
-	fast.setCapability({ kind: "supported" });
-	fast.setEnabled(true);
-	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, fast);
+	t.mock.method(controller, "getResetButton", () => ({ enabled: false, phase: "disabled" as const,
+		reason: "no_usable_cards" as const, hint: "无可用卡，或卡片已到期 / 结果未决" }));
+	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, new FastModeController());
 	const lines = panel.render(68);
 	const text = lines.join("\n");
-	const contentWidth = 64;
 	const innerOf = (line: string) => {
-		const start = line.indexOf("│");
-		const end = line.lastIndexOf("│");
-		assert.ok(start >= 0 && end > start, `missing frame borders: ${line}`);
-		return line.slice(start + 1, end);
+		assert.ok(line.startsWith("│ │ ") && line.endsWith(" │ │"), line);
+		return line.slice(4, -4);
 	};
-	for (const heading of ["─ 订阅额度 ─", "─ 重置卡 · 可用 3 张 ─", "─ Fast ─"]) {
+	for (const heading of ["订阅额度", "重置卡 · 可用 0 张", "暂无卡片记录", "[重置不可用]", "Fast  已关闭 · 标准", "等待响应 · 仅本会话"]) {
 		const line = lines.find((entry) => entry.includes(heading));
-		assert.ok(line, `missing heading ${heading}`);
+		assert.ok(line, `missing ${heading}`);
 		const inner = innerOf(line!);
 		assert.equal(inner.trim(), heading);
-		assert.equal(inner.length - inner.trimStart().length, 1 + Math.floor((contentWidth - visibleWidth(heading)) / 2), heading);
+		assert.equal(inner.length - inner.trimStart().length, Math.floor((60 - visibleWidth(heading)) / 2), heading);
 	}
-	assert.doesNotMatch(text, /── /);
-	assert.doesNotMatch(text, /\[ ↻ 重置额度 · u \]/);
-	const buttonIndex = lines.findIndex((line) => line.includes("↻ 重置额度 · u"));
-	assert.ok(buttonIndex > 0);
-	const box = [lines[buttonIndex - 1]!, lines[buttonIndex]!, lines[buttonIndex + 1]!].map(innerOf);
-	assert.equal(box[0]!.trim(), `┌${"─".repeat(16)}┐`);
-	assert.equal(box[1]!.trim(), "│ ↻ 重置额度 · u │");
-	assert.equal(box[2]!.trim(), `└${"─".repeat(16)}┘`);
-	assert.deepEqual(box.map((line) => visibleWidth(line.trim())), [18, 18, 18], "the three box lines are equally wide");
-	const leads = box.map((line) => line.length - line.trimStart().length);
-	assert.deepEqual(leads, [1 + Math.floor((contentWidth - 18) / 2), 1 + Math.floor((contentWidth - 18) / 2), 1 + Math.floor((contentWidth - 18) / 2)],
-		"the whole box is centered as one block");
-	const narrow = panel.render(20);
-	assert.ok(narrow.some((line) => line.includes("[u 重置额度]")));
-	assert.ok(narrow.every((line) => visibleWidth(line) <= 20));
+	const mains = lines.filter((line) => /[█░]/.test(line)).map(innerOf);
+	assert.equal(mains.length, 2);
+	assert.deepEqual(mains.map((line) => line.match(/[█░]+/)![0].length), [36, 36]);
+	const barColumn = mains[0]!.search(/[█░]/);
+	assert.equal(mains[1]!.search(/[█░]/), barColumn);
+	for (const line of lines.filter((line) => line.includes("↻"))) assert.equal(innerOf(line).indexOf("↻"), barColumn);
+	const widest = Math.max(...mains.map((line) => visibleWidth(line.trim())));
+	assert.equal(mains[0]!.indexOf("5h"), Math.floor((60 - widest) / 2));
+	assert.equal(lines.filter((line) => line.includes("│ ╭")).length, 3);
+	assert.equal(lines.filter((line) => /^│ +│$/.test(line)).length, 2, "one blank row between cards, none inside");
+	assert.equal(lines.filter((line) => line.includes("更新于")).length, 1);
+	const footer = lines.at(-2)!.slice(2, -2);
+	assert.equal(footer.length - footer.trimStart().length, Math.floor((64 - visibleWidth(footer.trim())) / 2));
+	assert.equal(text.split("[重置不可用]").length - 1, 1);
+	assert.doesNotMatch(text, /┌|┐|└|┘|已用|不推断|结果未决/);
+	assert.ok(lines.length <= 32);
+	controller.dispose();
+});
+
+test("simple reset keys remain centered and styled for ready, disabled and busy states", (t: TestContext) => {
+	const h = harness();
+	h.terminal.rows = 64;
+	const controller = new QuotaController({ offline: true, resolveAuth: async () => { throw new Error("Unexpected credentials"); } });
+	t.mock.method(controller, "getState", () => panelState(Date.now(), 0));
+	const calls: { text: string; options: { fg?: unknown; bold?: boolean } | undefined }[] = [];
+	t.mock.method(h.rawContext.ui.theme, "style", (text: string, options?: { fg?: unknown; bold?: boolean }) => {
+		calls.push({ text, options }); return text;
+	});
+	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, new FastModeController());
+	for (const [phase, label, color] of [["ready", "[u 重置]", "accent"], ["disabled", "[重置不可用]", "dim"], ["busy", "[重置中…]", "warning"]] as const) {
+		t.mock.method(controller, "getResetButton", () => ({ enabled: phase === "ready", phase, hint: "synthetic reason" }));
+		calls.length = 0;
+		const lines = panel.render(68);
+		assert.equal(lines.filter((line) => line.includes(label)).length, 1);
+		const inner = lines.find((line) => line.includes(label))!.slice(4, -4);
+		assert.equal(inner.length - inner.trimStart().length, Math.floor((60 - visibleWidth(label)) / 2));
+		assert.equal(calls.find((call) => call.text === label)?.options?.fg, color);
+		if (phase === "ready") assert.equal(calls.find((call) => call.text === label)?.options?.bold, true);
+		assert.doesNotMatch(lines.join("\n"), /┌|┐|└|┘/);
+		panel.render(20);
+		panel.handleInput("\x1b[F");
+		assert.ok(panel.render(20).some((line) => line.includes(label)));
+		panel.handleInput("\x1b[H");
+	}
+	controller.dispose();
+});
+
+test("bars shrink together for long labels and cards fall back on narrow or short terminals", (t: TestContext) => {
+	const h = harness();
+	const state = panelState(Date.now(), 0);
+	state.snapshot!.windows[0]!.periodSeconds = 2628000;
+	state.snapshot!.windows[1]!.periodSeconds = null;
+	state.snapshot!.windows[1]!.remainingPercent = 0.1;
+	const controller = new QuotaController({ offline: true, resolveAuth: async () => { throw new Error("Unexpected credentials"); } });
+	t.mock.method(controller, "getState", () => state);
+	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, new FastModeController());
+	for (const [width, rows, framedCards] of [[68, 32, true], [40, 32, true], [39, 32, false], [68, 15, false]] as const) {
+		h.terminal.rows = rows;
+		panel.render(width);
+		panel.handleInput("\x1b[H");
+		const lines = panel.render(width);
+		const bars = lines.filter((line) => /[█░]/.test(line));
+		assert.equal(bars.length, 2);
+		const lengths = bars.map((line) => line.match(/[█░]+/)![0].length);
+		assert.equal(lengths[0], lengths[1]);
+		assert.ok(lengths[0]! >= 1 && lengths[0]! <= 36);
+		if (width === 68) assert.equal(lengths[0], 36);
+		else assert.ok(lengths[0]! < 36);
+		const columns = bars.map((line) => visibleWidth(line.slice(0, line.search(/[█░]/))));
+		assert.equal(columns[0], columns[1], "wide labels keep visible terminal columns aligned");
+		assert.ok(lines.some((line) => line.includes("30d10h")));
+		assert.match(lines.join("\n"), /剩余 <1%/);
+		assert.equal(lines.some((line) => line.includes("│ ╭")), framedCards);
+		assert.ok(lines.every((line) => visibleWidth(line) <= width));
+	}
+	controller.dispose();
+});
+
+test("wrapped reset warnings retain their text and offline panels never expose cached account details", (t: TestContext) => {
+	const h = harness();
+	h.terminal.rows = 100;
+	const state = panelState(Date.now(), 0);
+	const message = "重置结果不确定，请检查服务端状态并重新刷新额度与卡片明细。".repeat(3);
+	state.resetUse = { message, warning: true };
+	const controller = new QuotaController({ offline: true, resolveAuth: async () => { throw new Error("Unexpected credentials"); } });
+	t.mock.method(controller, "getState", () => state);
+	t.mock.method(controller, "getResetButton", () => ({ enabled: false, phase: "disabled" as const,
+		reason: "no_usable_cards" as const, hint: "无可用卡，或卡片已到期 / 结果未决" }));
+	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, new FastModeController());
+	const lines = panel.render(40);
+	assert.ok(lines.every((line) => visibleWidth(line) <= 40));
+	const flattened = lines.join("").replace(/[ │]/g, "");
+	assert.ok(flattened.includes(message.replace(/ /g, "")), "all wrapped warning text survives");
+	assert.ok(flattened.includes("结果未决"), "an unresolved result must not be treated as an ordinary zero-card state");
+	for (const phase of ["offline", "not_logged_in"] as const) {
+		state.phase = phase;
+		const output = panel.render(68).join("\n");
+		assert.doesNotMatch(output, /PLUS|订阅额度|剩余|#1|重置结果不确定/);
+		assert.match(output, phase === "offline" ? /离线模式/ : /尚未登录/);
+	}
 	controller.dispose();
 });
 
@@ -751,10 +833,10 @@ test("the three section headings take distinct rgb colors per theme appearance",
 		return text;
 	});
 	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, new FastModeController());
-	const headings = ["─ 订阅额度 ─", "─ 重置卡 · 可用 3 张 ─", "─ Fast ─"];
+	const headings = ["订阅额度", "重置卡 · 可用 3 张", "Fast"];
 	const expected = {
-		dark: [rgbColor(125, 211, 252), rgbColor(196, 181, 253), rgbColor(134, 239, 172)],
-		light: [rgbColor(8, 123, 164), rgbColor(109, 40, 217), rgbColor(21, 128, 61)],
+		dark: [rgbColor(94, 234, 212), rgbColor(196, 181, 253), rgbColor(56, 189, 248)],
+		light: [rgbColor(15, 118, 110), rgbColor(109, 40, 217), rgbColor(2, 132, 199)],
 	};
 	const seen: unknown[] = [];
 	for (const appearance of ["dark", "light"] as const) {
@@ -787,8 +869,9 @@ test("reset results and disabled or busy hints stay inside the card section with
 		t.mock.method(controller, "getResetButton", () => ({ enabled: false, phase, hint }));
 		const text = panel.render(68).join("\n");
 		const cardStart = text.indexOf("重置卡");
-		const fastStart = text.indexOf("─ Fast ─");
-		for (const message of [state.resetUse.message, hint, "重置额度"]) {
+		const fastStart = text.indexOf("Fast  ");
+		const label = phase === "busy" ? "[重置中…]" : "[重置不可用]";
+		for (const message of [state.resetUse.message, hint, label]) {
 			assert.ok(text.indexOf(message) > cardStart && text.indexOf(message) < fastStart, message);
 			assert.equal(text.split(message).length - 1, 1, message);
 		}
@@ -821,7 +904,7 @@ test("all cards remain scrollable while the update footer is fixed and u works o
 	panel.handleInput("\x1b[F");
 	assert.match(panel.render(68).join("\n"), /仅本会话/);
 	panel.handleInput("\x1b[H");
-	assert.doesNotMatch(panel.render(68).join("\n"), /重置额度/);
+	assert.doesNotMatch(panel.render(68).join("\n"), /\[u 重置\]/);
 	panel.handleInput("u");
 	panel.handleInput("u");
 	assert.deepEqual(actions, ["use"]);

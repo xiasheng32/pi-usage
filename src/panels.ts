@@ -10,7 +10,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { TUI } from "@earendil-works/pi-tui";
 import { matchesKey, rgbColor, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { BalanceRuntime } from "./balance/core.ts";
-import { detailSections, isLowQuota, statusLine } from "./codex/quota.ts";
+import { detailSections, isLowQuota, quotaBar, statusLine, windowLabel } from "./codex/quota.ts";
 import type { QuotaController } from "./codex/quota.ts";
 import type { FastModeController } from "./codex/fast-mode.ts";
 import { usesCodexSubscription } from "./registry.ts";
@@ -18,9 +18,9 @@ import { usesCodexSubscription } from "./registry.ts";
 const LOW_QUOTA_DARK = rgbColor(240, 160, 160);
 const LOW_QUOTA_LIGHT = rgbColor(176, 82, 92);
 const HEADING_COLORS = {
-	quota: { dark: rgbColor(125, 211, 252), light: rgbColor(8, 123, 164) },
+	quota: { dark: rgbColor(94, 234, 212), light: rgbColor(15, 118, 110) },
 	cards: { dark: rgbColor(196, 181, 253), light: rgbColor(109, 40, 217) },
-	fast: { dark: rgbColor(134, 239, 172), light: rgbColor(21, 128, 61) },
+	fast: { dark: rgbColor(56, 189, 248), light: rgbColor(2, 132, 199) },
 };
 
 export class BalancePanel {
@@ -116,69 +116,95 @@ export class QuotaPanel {
 		const height = Math.max(1, rows - 2);
 		const framed = width >= 24 && height >= 10;
 		const contentWidth = framed ? width - 4 : width;
+		const cards = width >= 40 && rows >= 16;
+		const detailWidth = cards ? contentWidth - 4 : contentWidth;
 		const state = this.controller.getState();
 		const now = Date.now();
 		const theme = this.ctx.ui.theme;
 		const button = this.controller.getResetButton();
-		const lowQuotaColor = theme.appearance === "light" ? LOW_QUOTA_LIGHT : LOW_QUOTA_DARK;
-		const sections = detailSections(state, now, contentWidth < 42 ? 12 : 24, (line, window) => {
-			// Judge each original window independently, never its rounded display text.
-			const color = statusLine({ ...state, snapshot: { ...state.snapshot!, windows: [window] } }, now).color;
-			return line.split(/([█░]+)/).map((part) => isLowQuota(window.remainingPercent) && /[█░]/.test(part)
-				? theme.style(part, { fg: lowQuotaColor }) : theme.fg(color, part)).join("");
-		});
+		const sections = detailSections(state, now, 36, undefined, { compact: true });
 		const updated = theme.fg("dim", truncateToWidth(sections.updated, contentWidth));
-		// Wrap to contentWidth first, then center every wrapped line by its visible width.
-		const center = (line: string) => !line ? line
-			: " ".repeat(Math.max(0, Math.floor((contentWidth - visibleWidth(line)) / 2))) + line;
+		const center = (line: string, columns = contentWidth) => !line ? line
+			: " ".repeat(Math.max(0, Math.floor((columns - visibleWidth(line)) / 2))) + line;
 		if (height === 1) {
 			this.offset = this.maxOffset = 0;
 			return [center(updated)];
 		}
-		const heading = (title: string, colors: typeof HEADING_COLORS.quota, summary = "") => {
-			const text = summary ? `${title} · ${summary}` : title;
-			const decorated = `─ ${text} ─`;
-			// Decorations that cannot fit the body fall back to the undecorated title.
-			const plain = visibleWidth(decorated) > contentWidth ? text : decorated;
-			return theme.style(truncateToWidth(plain, contentWidth),
-				{ fg: theme.appearance === "light" ? colors.light : colors.dark });
+		// Wrap first and position each content group as a unit. Continuations keep
+		// their column relationships instead of drifting when centered separately.
+		const group = (lines: string[], columns = detailWidth): string[] => {
+			const wrapped = lines.flatMap((line) => wrapTextWithAnsi(line, columns));
+			const widest = Math.max(0, ...wrapped.map(visibleWidth));
+			const padding = " ".repeat(Math.max(0, Math.floor((columns - widest) / 2)));
+			return wrapped.map((line) => line ? padding + line : line);
 		};
+		const heading = (title: string, colors: typeof HEADING_COLORS.quota) => theme.style(title,
+			{ fg: theme.appearance === "light" ? colors.light : colors.dark, bold: true });
 		const paint = (line: string) => {
 			if ((state.resetUse?.warning && line === state.resetUse.message)
 				|| /过期缓存|查询失败|查询限流|查询超时|格式异常|已到期|结果不确定|未完成|被拒绝/.test(line)) return theme.fg("warning", line);
-			if (line.startsWith("  ↻") || line.startsWith("     ") || /不推断|未提供/.test(line)) return theme.fg("dim", line);
+			if (line.startsWith("   ") || /不推断|未提供/.test(line)) return theme.fg("dim", line);
 			return line;
 		};
+		const card = (lines: string[]): string[] => {
+			if (!cards) return lines;
+			return [
+				theme.fg("dim", `╭${"─".repeat(contentWidth - 2)}╮`),
+				...lines.map((line) => theme.fg("dim", "│") + ` ${line}${" ".repeat(Math.max(0, detailWidth - visibleWidth(line)))} ` + theme.fg("dim", "│")),
+				theme.fg("dim", `╰${"─".repeat(contentWidth - 2)}╯`),
+			];
+		};
+		const windows = sections.quota.length ? state.snapshot?.windows ?? [] : [];
+		const labelWidth = Math.max(0, ...windows.map((window) => visibleWidth(windowLabel(window))));
+		const quota = sections.quota.map((line, index) => {
+			const window = windows[Math.floor(index / 2)];
+			if (!window) return paint(line);
+			if (index % 2) return theme.fg("dim", " ".repeat(labelWidth) + line);
+			const label = windowLabel(window);
+			return label + " ".repeat(labelWidth - visibleWidth(label)) + line.slice(label.length);
+		});
+		const overhead = Math.max(0, ...quota.filter((_line, index) => windows.length && index % 2 === 0).map((line) => visibleWidth(line) - 36));
+		const barWidth = Math.max(1, Math.min(36, detailWidth - overhead));
+		const lowQuotaColor = theme.appearance === "light" ? LOW_QUOTA_LIGHT : LOW_QUOTA_DARK;
+		for (let index = 0; index < windows.length; index++) {
+			const window = windows[index]!;
+			const line = quota[index * 2]!.replace(/[█░]+/, quotaBar(window.remainingPercent, barWidth, true));
+			// Color the original window independently, never its rounded text.
+			const color = statusLine({ ...state, snapshot: { ...state.snapshot!, windows: [window] } }, now).color;
+			quota[index * 2] = line.split(/([█░]+)/).map((part) => isLowQuota(window.remainingPercent) && /[█░]/.test(part)
+				? theme.style(part, { fg: lowQuotaColor }) : theme.fg(color, part)).join("");
+		}
 		const title = "🍧 Codex 额度";
 		const summaryFits = framed && sections.summary !== null
 			&& visibleWidth(title) + 2 + visibleWidth(sections.summary) <= contentWidth;
 		const header = theme.fg("accent", title) + (summaryFits
 			? " ".repeat(contentWidth - visibleWidth(title) - visibleWidth(sections.summary!)) + theme.fg("dim", sections.summary!) : "");
-		const lines: string[] = [];
-		if (!summaryFits && sections.summary) lines.push(theme.fg("dim", sections.summary));
-		if (sections.status.length) lines.push(...sections.status.map((line) => theme.fg(state.error || state.stale ? "warning" : "dim", line)), "");
-		if (sections.quota.length) lines.push(heading("订阅额度", HEADING_COLORS.quota), ...sections.quota.map(paint), "");
-		lines.push(heading("重置卡", HEADING_COLORS.cards, sections.resetSummary), ...sections.resets.map(paint));
-		if (!button.enabled && !sections.resets.some((line) => line.trim() === button.hint)) {
-			lines.push(theme.fg(button.phase === "busy" ? "dim" : "warning", button.hint));
+		const blocks: string[][] = [];
+		if (!summaryFits && sections.summary) blocks.push(group([theme.fg("dim", sections.summary)], contentWidth));
+		if (sections.status.length) blocks.push(group(sections.status.map((line) => theme.fg(state.error || state.stale ? "warning" : "dim", line)), contentWidth));
+		if (quota.length) blocks.push(card([...group([heading("订阅额度", HEADING_COLORS.quota)]), ...group(quota)]));
+		const resets = [
+			...group([heading(`重置卡 · ${sections.resetSummary}`, HEADING_COLORS.cards)]),
+			...group(sections.resets.map(paint)),
+		];
+		const reset = state.resetCredits;
+		const freshEmpty = button.reason === "no_usable_cards" && state.phase === "ready" && !state.stale && !state.error
+			&& !reset?.stale && !reset?.error && reset?.snapshot?.availableCount === 0
+			&& reset.snapshot.credits?.length === 0 && !state.resetUse?.warning;
+		if (!button.enabled && !freshEmpty && !sections.resets.some((line) => line.trim() === button.hint)) {
+			resets.push(...group([theme.fg(button.phase === "busy" ? "dim" : "warning", button.hint)]));
 		}
-		const label = button.phase === "ready" ? "↻ 重置额度 · u" : button.phase === "busy" ? "↻ 重置额度 · 处理中" : "↻ 重置额度 · 不可用";
-		const shortLabel = button.enabled ? "[u 重置额度]" : button.phase === "busy" ? "[重置中]" : "[重置不可用]";
-		const paintButton = (text: string) => theme.style(text, button.enabled ? { fg: "accent", bold: true }
+		const label = button.enabled ? "[u 重置]" : button.phase === "busy" ? "[重置中…]" : "[重置不可用]";
+		const styledButton = theme.style(truncateToWidth(label, detailWidth), button.enabled ? { fg: "accent", bold: true }
 			: button.phase === "busy" ? { fg: "warning" } : { fg: "dim" });
-		const buttonLines = (() => {
-			if (contentWidth < 24) return [paintButton(truncateToWidth(shortLabel, contentWidth))];
-			const inner = visibleWidth(label) + 2; // One padding space on each side of the label.
-			if (inner + 2 > contentWidth) return [paintButton(truncateToWidth(label, contentWidth))];
-			const rule = "─".repeat(inner);
-			const pad = " ".repeat(Math.max(0, inner - visibleWidth(label) - 2));
-			return [paintButton(`┌${rule}┐`), paintButton(`│ ${label} ${pad}│`), paintButton(`└${rule}┘`)];
-		})();
-		lines.push("", ...buttonLines, "");
+		resets.push(center(styledButton, detailWidth));
+		blocks.push(card(resets));
 		const fast = this.fast.summary(this.ctx.model, usesCodexSubscription(this.ctx));
-		lines.push(heading("Fast", HEADING_COLORS.fast), theme.fg(fast.warning ? "warning" : "text", `${fast.switchLabel} · ${fast.costLabel}`),
-			theme.fg(fast.warning ? "warning" : "dim", fast.responseLabel) + theme.fg("dim", " · 仅本会话"));
-		const content = lines.flatMap((line) => wrapTextWithAnsi(line, contentWidth).map(center));
+		blocks.push(card([
+			...group([heading("Fast", HEADING_COLORS.fast) + theme.fg(fast.warning ? "warning" : "text", `  ${fast.switchLabel} · ${fast.costLabel}`)]),
+			...group([theme.fg(fast.warning ? "warning" : "dim", fast.responseLabel) + theme.fg("dim", " · 仅本会话")]),
+		]));
+		const content = blocks.flatMap((block, index) => index ? ["", ...block] : block);
 		const bodyHeight = height - (framed ? 6 : 1);
 		this.maxOffset = Math.max(0, content.length - bodyHeight);
 		this.offset = Math.min(this.offset, this.maxOffset);

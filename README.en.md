@@ -30,7 +30,7 @@
 
 Requires Node.js >=22.19 and a pi build with the extension API (full offline suite on **1.2.0**, plus dynamic-catalog and lifecycle checks on **1.4.0**). No runtime dependencies are installed; pi provides the host packages.
 
-1.1.0 preserves the host dynamic model catalog and refresh capability. Fast decorates host provider requests; it does not determine `/model` contents. Fast capabilities are still queried on demand and cached, not fetched unconditionally at every startup or used to show only Fast-capable models. Missing required host APIs leave the catalog untouched and only produce a Fast installation warning.
+1.2.0 gives the Codex detail panel compact centered cards, bars up to 36 columns and minimal reset keys, with light/dark and small-terminal layouts. It continues to preserve the host dynamic model catalog and refresh capability. Fast decorates host provider requests; it does not determine `/model` contents. Fast capabilities are still queried on demand and cached, not fetched unconditionally at every startup or used to show only Fast-capable models. Missing required host APIs leave the catalog untouched and only produce a Fast installation warning.
 
 ```bash
 pi install git:github.com/xiasheng32/pi-usage
@@ -60,6 +60,14 @@ pi install git:github.com/xiasheng32/pi-usage
 - `/pi-usage` forces a refresh and opens the panel: `Enter` / `Esc` (or `q`) closes it, `↑` / `↓` scroll and `Home` / `End` jump. Press `u` in the Codex panel to consume a reset card.
 - `/fast on` enables Codex Fast (priority routing, subscription quota consumed at 2.5×) and `/fast off` disables it; both apply to the current session only.
 - Without credentials the footer reads `🐳 DeepSeek 未配置` / `🌙 Kimi 未配置` or reports an expired Codex login, and the panel explains how to fix it.
+
+### Codex detail layout (1.2.0)
+
+- Three lightweight cards for subscription quota, reset cards and Fast, with teal, purple and blue headings and just one blank row between sections.
+- Quota content is centered as a group while labels, bars and reset countdowns stay aligned. At normal width both bars use 36 columns; each window shows its remaining percentage above a countdown and local date. Same-year dates omit the year; cross-year dates retain it.
+- A single-line reset key remains visible: `[u 重置]` (ready), `[重置不可用]` (disabled) or `[重置中…]` (busy). Only `u` opens the existing selection/confirmation flow; cards are never consumed automatically. Reasons and results appear separately.
+- Fast remains read-only in a two-line summary; use `/fast on` / `/fast off` to change it. The update time stays in a fixed footer and every card record remains scrollable.
+- The panel is capped at 68 columns. Inner card borders disappear below 40 columns or 16 terminal rows, and bars shrink to the available width. Missing history, unknown counts, stale caches and request failures never masquerade as zero cards or healthy state.
 
 ### Credentials
 

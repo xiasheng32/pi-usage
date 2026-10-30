@@ -76,6 +76,8 @@ export interface ResetButtonState {
 	phase: "ready" | "disabled" | "busy";
 	enabled: boolean;
 	hint: string;
+	/** Lets the TUI omit only a redundant, fresh zero-card hint. */
+	reason?: "no_usable_cards";
 }
 
 /** User-only dialogs; no model-callable consumption tool. */
@@ -346,7 +348,7 @@ export class QuotaController {
 		if (this.state.phase !== "ready" || this.state.stale || this.state.resetCredits?.stale || this.state.resetCredits?.error
 			|| !this.state.resetCredits?.snapshot) return disabled("数据不可用，请先刷新明细");
 		const count = this.creditRows.filter((row) => this.canUse(row, this.accountId!)).length;
-		if (!count) return disabled("无可用卡，或卡片已到期 / 结果未决");
+		if (!count) return { ...disabled("无可用卡，或卡片已到期 / 结果未决"), reason: "no_usable_cards" };
 		return { phase: "ready", enabled: true, hint: `可选 ${count} 张 · 选卡后确认，不会自动消费` };
 	}
 
@@ -803,8 +805,9 @@ export function isLowQuota(remainingPercent: number): boolean {
 	return remainingPercent <= 20;
 }
 
-export function quotaBar(remaining: number, width = 20): string {
-	const columns = Math.max(1, Math.min(30, Math.floor(width)));
+/** The wider bar is opt-in; existing non-TUI callers keep the 30-column cap. */
+export function quotaBar(remaining: number, width = 20, compact = false): string {
+	const columns = Math.max(1, Math.min(compact ? 36 : 30, Math.floor(width)));
 	const filled = Math.max(0, Math.min(columns, Math.round(remaining / 100 * columns)));
 	return "█".repeat(filled) + "░".repeat(columns - filled);
 }
@@ -818,8 +821,13 @@ export interface QuotaDetailSections {
 	updated: string;
 }
 
+export interface QuotaDetailOptions {
+	/** TUI-only presentation; default details and state remain unchanged. */
+	compact?: boolean;
+}
+
 /** Presentation only. Keep section boundaries independent of translated labels. */
-export function detailSections(state: QuotaState, now: number, barWidth = 20, formatQuota?: (line: string, window: QuotaWindow) => string): QuotaDetailSections {
+export function detailSections(state: QuotaState, now: number, barWidth = 20, formatQuota?: (line: string, window: QuotaWindow) => string, options: QuotaDetailOptions = {}): QuotaDetailSections {
 	const sections: QuotaDetailSections = {
 		summary: null, status: [], quota: [], resetSummary: "可用 未知", resets: [],
 		updated: `更新于 ${state.lastSuccessAt === null ? "未知" : localTime(state.lastSuccessAt).slice(-5)} · 本机时区`,
@@ -841,36 +849,42 @@ export function detailSections(state: QuotaState, now: number, barWidth = 20, fo
 		sections.summary = `${snapshot.plan?.toUpperCase() ?? "未知套餐"}  ·  ${snapshot.allowed === false || snapshot.limitReached === true ? "受限" : snapshot.allowed === true ? "可用" : "状态未知"}`;
 		if (!snapshot.windows.length) sections.quota.push("服务端未提供主额度窗口（不等于 0% 或无限额度）。");
 		for (const window of snapshot.windows) {
-			const line = `${windowLabel(window)}  ${quotaBar(window.remainingPercent, barWidth)}  剩${percentage(window.remainingPercent)}% · 已用${percentage(window.usedPercent)}%`;
+			const usage = options.compact ? `剩余 ${percentage(window.remainingPercent)}%`
+				: `剩${percentage(window.remainingPercent)}% · 已用${percentage(window.usedPercent)}%`;
+			const line = `${windowLabel(window)}  ${quotaBar(window.remainingPercent, barWidth, options.compact)}  ${usage}`;
 			sections.quota.push(formatQuota ? formatQuota(line, window) : line);
 			const countdown = resetRemaining(window.resetAt, now);
-			sections.quota.push(`  ↻ ${countdown}${window.resetAt !== null && window.resetAt > now ? " 后重置" : ""} · ${localTime(window.resetAt)}`);
+			const date = localTime(window.resetAt);
+			const resetDate = options.compact && window.resetAt !== null
+				&& new Date(window.resetAt).getFullYear() === new Date(now).getFullYear() ? date.slice(5) : date;
+			sections.quota.push(`  ↻ ${countdown}${window.resetAt !== null && window.resetAt > now ? " 后重置" : ""} · ${resetDate}`);
 		}
 	} else if (!sections.status.length) sections.status.push("暂无额度数据。");
 	const resets = availableResets(state);
 	sections.resetSummary = `可用 ${resets.count === null ? "未知" : `${resets.count} 张`}${resets.stale ? " [过期缓存]" : ""}`;
 	const lines = sections.resets;
+	const indent = options.compact ? "" : "  ";
 	if (state.resetUse) lines.push(state.resetUse.message);
 	const reset = state.resetCredits;
 	if (reset?.error) {
 		const message = reset.error.kind === "rate_limit" ? "查询限流" : reset.error.kind === "data" ? "响应格式异常" : reset.error.kind === "timeout" ? "查询超时" : "查询失败";
-		lines.push(`  ${message}${reset.error.httpStatus ? `（HTTP ${reset.error.httpStatus}）` : ""}；${reset.snapshot ? "明细为过期缓存" : "明细暂不可用"}`);
+		lines.push(`${indent}${message}${reset.error.httpStatus ? `（HTTP ${reset.error.httpStatus}）` : ""}；${reset.snapshot ? "明细为过期缓存" : "明细暂不可用"}`);
 	}
 	const cards = reset?.snapshot?.credits;
 	if (cards) {
-		if (!cards.length) lines.push("  暂无卡片记录");
+		if (!cards.length) lines.push(`${indent}暂无卡片记录`);
 		const labels = { available: "可用", used: "已使用", expired: "已过期", pending: "使用中", unknown: "状态未知" };
 		cards.forEach((card, index) => {
-			lines.push(`  #${index + 1} ${card.fullReset ? "完全重置（7d + 5h）" : "重置卡"} · ${labels[card.status]}`);
-			if (card.status === "used") lines.push(`     使用：${localTime(card.redeemedAt)}`);
+			lines.push(`${indent}#${index + 1} ${card.fullReset ? "完全重置（7d + 5h）" : "重置卡"} · ${labels[card.status]}`);
+			if (card.status === "used") lines.push(`${indent}   使用：${localTime(card.redeemedAt)}`);
 			else {
 				const expires = card.expiresAt === null ? "有效期未知" : `${localTime(card.expiresAt)}${card.status === "available" ? ` · ${card.expiresAt <= now ? "已到期，待刷新" : `${resetRemaining(card.expiresAt, now)}后到期`}` : ""}`;
-				lines.push(`     到期：${expires}`);
+				lines.push(`${indent}   到期：${expires}`);
 			}
 		});
-		lines.push("  仅显示接口返回记录，不推断完整历史。");
-	} else lines.push("  未提供使用记录 / 有效期明细");
-	if (reset?.retryAt != null && reset.retryAt > now) lines.push(`  重置卡重试：${resetRemaining(reset.retryAt, now)}后`);
+		if (!options.compact || cards.length) lines.push(`${indent}仅显示接口返回记录，不推断完整历史。`);
+	} else lines.push(`${indent}未提供使用记录 / 有效期明细`);
+	if (reset?.retryAt != null && reset.retryAt > now) lines.push(`${indent}重置卡重试：${resetRemaining(reset.retryAt, now)}后`);
 	return sections;
 }
 
