@@ -28,7 +28,9 @@
 
 ## Install
 
-Requires Node.js >=22.19 and a pi build with the extension API (verified on **1.2.0**). No runtime dependencies are installed; pi provides the host packages.
+Requires Node.js >=22.19 and a pi build with the extension API (full offline suite on **1.2.0**, plus dynamic-catalog and lifecycle checks on **1.4.0**). No runtime dependencies are installed; pi provides the host packages.
+
+1.1.0 preserves the host dynamic model catalog and refresh capability. Fast decorates host provider requests; it does not determine `/model` contents. Fast capabilities are still queried on demand and cached, not fetched unconditionally at every startup or used to show only Fast-capable models. Missing required host APIs leave the catalog untouched and only produce a Fast installation warning.
 
 ```bash
 pi install git:github.com/xiasheng32/pi-usage
@@ -75,7 +77,7 @@ pi install git:github.com/xiasheng32/pi-usage
 ## Development
 
 ```bash
-npm install
+npm ci
 npm run typecheck   # tsc --noEmit
 npm test            # node --test tests/*.test.ts
 npm run check       # both

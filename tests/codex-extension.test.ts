@@ -3,6 +3,7 @@ import { afterEach, beforeEach, mock, test } from "node:test";
 import type { TestContext } from "node:test";
 import { zstdDecompressSync } from "node:zlib";
 import type { Model, Provider } from "@earendil-works/pi-ai";
+import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { TUI } from "@earendil-works/pi-tui";
@@ -50,12 +51,16 @@ function harness(options: { entries?: Entry[]; sessionId?: string; model?: FastM
 	let oauth = options.oauth ?? true;
 	let sessionId = options.sessionId ?? "session-A";
 	let renders = 0;
-	let provider: Provider | undefined;
+	let provider: Provider | undefined = openaiCodexProvider();
+	let registered: Provider | undefined;
 	const terminal = { rows: 32 };
 	const tui = { terminal, requestRender: () => { renders++; } } as unknown as TUI;
 	const rawContext = {
 		mode: options.mode ?? "tui", hasUI: options.hasUI ?? true, model: options.model ?? codex,
 		modelRegistry: {
+			getProvider: () => provider,
+			getRegisteredNativeProvider: () => registered,
+			getRegisteredProviderConfig: () => undefined,
 			isUsingOAuth: () => oauth,
 			getProviderAuth: () => {
 				authCalls++;
@@ -82,7 +87,8 @@ function harness(options: { entries?: Entry[]; sessionId?: string; model?: FastM
 	const api = {
 		on: (name: string, handler: Handler) => { events.set(name, handler); return () => events.delete(name); },
 		registerCommand: (name: string, command: Command) => { commands.set(name, command); },
-		registerProvider: (value: Provider) => { provider = value; },
+		registerProvider: (value: Provider) => { registered = provider = value; },
+		unregisterProvider: () => { registered = undefined; provider = openaiCodexProvider(); },
 		appendEntry: (customType: string, data: Entry["data"]) => {
 			if (appendFailure) throw new Error("Synthetic session write failure");
 			entries.push({ type: "custom", customType, data });

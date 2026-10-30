@@ -17,6 +17,7 @@
  * provider; switching away clears it and stops polling that provider.
  */
 
+import type { Provider } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { VERSION } from "@earendil-works/pi-coding-agent";
 import { createBalanceRuntime, isOffline, POLL_MS } from "../src/balance/core.ts";
@@ -24,7 +25,7 @@ import type { BalanceRuntime } from "../src/balance/core.ts";
 import * as deepseek from "../src/balance/deepseek.ts";
 import * as kimi from "../src/balance/kimi.ts";
 import { FAST_ENTRY, FastModeController, isCodexSubscription, restoreFastMode } from "../src/codex/fast-mode.ts";
-import type { FastCapability } from "../src/codex/fast-mode.ts";
+import type { FastCapability, FastModel } from "../src/codex/fast-mode.ts";
 import { FastCatalog } from "../src/codex/fast-catalog.ts";
 import { createFastProvider } from "../src/codex/fast-provider.ts";
 import { detailLines as quotaDetailLines, PROVIDER, QuotaController, statusLine as quotaStatusLine } from "../src/codex/quota.ts";
@@ -40,6 +41,45 @@ export default function piUsage(pi: ExtensionAPI): void {
 	let quota: QuotaController | null = null;
 	let timer: ReturnType<typeof setInterval> | undefined;
 	let activeContext: ExtensionContext | undefined;
+	let installation: {
+		registry: ExtensionContext["modelRegistry"];
+		provider: Provider;
+		previousNative: Provider | undefined;
+		previousLegacy: ReturnType<ExtensionContext["modelRegistry"]["getRegisteredProviderConfig"]>;
+	} | undefined;
+
+	function installFast(ctx: ExtensionContext): void {
+		if (installation) return;
+		const registry = ctx.modelRegistry;
+		if (typeof registry.getProvider !== "function"
+			|| typeof registry.getRegisteredNativeProvider !== "function"
+			|| typeof registry.getRegisteredProviderConfig !== "function"
+			|| typeof pi.unregisterProvider !== "function") {
+			ctx.ui.notify("Fast 无法安装：宿主缺少 provider 生命周期 API；模型目录保持不变。", "warning");
+			return;
+		}
+		const native = registry.getProvider(PROVIDER);
+		if (!native) {
+			ctx.ui.notify("Fast 无法安装：宿主未提供 Codex provider；模型目录保持不变。", "warning");
+			return;
+		}
+		const previousNative = registry.getRegisteredNativeProvider(PROVIDER);
+		const previousLegacy = registry.getRegisteredProviderConfig(PROVIDER);
+		const provider = createFastProvider(native, prepareFast);
+		pi.registerProvider(provider);
+		installation = { registry, provider, previousNative, previousLegacy };
+	}
+
+	function uninstallFast(): void {
+		const installed = installation;
+		installation = undefined;
+		if (!installed || installed.registry.getRegisteredNativeProvider(PROVIDER) !== installed.provider) return;
+		// Do not overwrite another extension's later registration. Unregistering
+		// first also discards our composed models.json layer before restoration.
+		pi.unregisterProvider(PROVIDER);
+		if (installed.previousNative) pi.registerProvider(installed.previousNative);
+		else if (installed.previousLegacy) pi.registerProvider(PROVIDER, installed.previousLegacy);
+	}
 
 	const fast = new FastModeController();
 	let fastGeneration = 0;
@@ -221,6 +261,7 @@ export default function piUsage(pi: ExtensionAPI): void {
 	}
 
 	pi.on("session_start", async (_event, ctx) => {
+		installFast(ctx);
 		fastGeneration++;
 		preferenceRevision++;
 		catalog.reset();
@@ -249,13 +290,13 @@ export default function piUsage(pi: ExtensionAPI): void {
 
 	// The payload event exposes no request credentials. Bind the final tier to
 	// the native provider's already-resolved token, not the current login.
-	pi.registerProvider(createFastProvider((model, apiKey, signal) => {
+	function prepareFast(model: FastModel, apiKey: string | undefined, signal: AbortSignal | undefined) {
 		const owner = fastGeneration;
 		const revision = preferenceRevision;
 		const key = JSON.stringify([model.provider, model.api, model.id, model.baseUrl]);
 		const applicable = !!activeContext && key === modelKey(activeContext)
 			&& isCodexSubscription(model, usesCodexSubscription(activeContext));
-		return async (payload) => {
+		return async (payload: unknown) => {
 			if (!applicable) return undefined;
 			const current = () => owner === fastGeneration && revision === preferenceRevision
 				&& !!activeContext && key === modelKey(activeContext) && usesCodexSubscription(activeContext);
@@ -274,7 +315,7 @@ export default function piUsage(pi: ExtensionAPI): void {
 			if (activeContext) updateStatus(activeContext);
 			return result;
 		};
-	}));
+	}
 
 	pi.on("before_provider_request", async (_event, ctx) => {
 		activeContext = ctx;
@@ -302,6 +343,7 @@ export default function piUsage(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_shutdown", (_event, ctx) => {
+		uninstallFast();
 		fastGeneration++;
 		preferenceRevision++;
 		catalog.reset();

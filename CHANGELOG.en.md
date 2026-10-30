@@ -2,6 +2,20 @@
 
 [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## [1.1.0] - 2026-10-30
+
+- Fast now decorates the host Codex provider, preserving its dynamic model catalog, cache restoration and later refreshes instead of replacing `/model` with a static list.
+- Installation happens at `session_start`; ownership-aware shutdown/reload restores prior registrations. Repeated reloads do not accumulate wrappers or configuration layers, and cleanup respects later registrations by other extensions.
+- Preserves OAuth, native SSE/WebSocket, request-bound credentials and `models.json` model additions/overrides and endpoints. Missing host providers or required APIs only produce a Fast installation warning, never a static catalog fallback.
+- Fast capabilities remain queried on demand and cached: startup does not unconditionally fetch them, and they do not filter the models shown in `/model`.
+
+### Verification
+
+- `npm ci` completed; no dependency upgrades.
+- Four focused test files: 62 tests passed, including dynamic-model startup, reload, both transports sending `default → priority → default`, and account switching.
+- `npm run check`: type checking and all 252 offline tests passed.
+- Installed Pi 1.4.0: 4 in-memory lifecycle checks passed, covering catalog preservation, newly refreshed models, prior native/legacy registration restoration and configuration overrides; no real credentials read or user caches/configuration written.
+
 ## [1.0.0] - 2026-10-25
 
 First release: merges `pi-kimi`, `pi-deepseek` and `pi-codex` into one extension. The three old repositories are archived.

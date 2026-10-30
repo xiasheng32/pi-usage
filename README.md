@@ -28,7 +28,9 @@
 
 ## 安装
 
-需要 Node.js >=22.19 与提供扩展 API 的 pi（已验证 **1.2.0**）。运行时无需额外依赖，宿主包由 pi 提供。
+需要 Node.js >=22.19 与提供扩展 API 的 pi（完整离线测试使用 **1.2.0**，动态目录与生命周期另验证 **1.4.0**）。运行时无需额外依赖，宿主包由 pi 提供。
+
+1.1.0 保留宿主动态模型目录和刷新能力；Fast 只装饰宿主 provider 的请求，不决定 `/model` 的内容。Fast 能力仍按需查询并缓存，不会每次启动强制联网或只显示支持 Fast 的模型。宿主缺少必要 API 时保留模型目录，仅提示 Fast 无法安装。
 
 ```bash
 pi install git:github.com/xiasheng32/pi-usage
@@ -75,7 +77,7 @@ pi install git:github.com/xiasheng32/pi-usage
 ## 开发与验证
 
 ```bash
-npm install
+npm ci
 npm run typecheck   # tsc --noEmit
 npm test            # node --test tests/*.test.ts
 npm run check       # 两者一起执行

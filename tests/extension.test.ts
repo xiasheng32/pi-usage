@@ -6,6 +6,8 @@
  */
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, mock, test } from "node:test";
+import type { Provider } from "@earendil-works/pi-ai";
+import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { TUI } from "@earendil-works/pi-tui";
 import piUsage from "../extensions/index.ts";
@@ -35,11 +37,16 @@ function harness(options: { model?: Record<string, unknown>; oauth?: boolean } =
 	const panels: Panel[] = [];
 	let model: Record<string, unknown> | undefined = options.model ?? DEEPSEEK;
 	let oauth = options.oauth ?? true;
+	const native = openaiCodexProvider();
+	let registered: Provider | undefined;
 	const tui = { terminal: { rows: 32 }, requestRender: () => {} } as unknown as TUI;
 	const rawContext = {
 		mode: "tui", hasUI: true,
 		get model() { return model; },
 		modelRegistry: {
+			getProvider: () => registered ?? native,
+			getRegisteredNativeProvider: () => registered,
+			getRegisteredProviderConfig: () => undefined,
 			isUsingOAuth: () => oauth,
 			getApiKeyForProvider: async (provider: string) => `sk-${provider}`,
 			getProviderAuth: async () => undefined,
@@ -61,7 +68,8 @@ function harness(options: { model?: Record<string, unknown>; oauth?: boolean } =
 	const api = {
 		on: (name: string, handler: Handler) => { events.set(name, handler); return () => events.delete(name); },
 		registerCommand: (name: string, command: Command) => { commands.set(name, command); },
-		registerProvider: () => {},
+		registerProvider: (provider: Provider) => { registered = provider; },
+		unregisterProvider: () => { registered = undefined; },
 		appendEntry: () => {},
 	} as unknown as ExtensionAPI;
 	piUsage(api);

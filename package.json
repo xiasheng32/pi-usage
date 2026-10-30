@@ -1,6 +1,6 @@
 {
   "name": "pi-usage",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Pi 扩展：按当前模型显示 DeepSeek / Kimi 余额或 Codex 额度，并提供 /pi-usage 与 /fast。\nPi extension: show DeepSeek / Kimi balances or Codex quota for the active model, with /pi-usage and /fast.",
   "type": "module",
   "keywords": [

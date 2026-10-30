@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { zstdDecompressSync } from "node:zlib";
-import type { Model } from "@earendil-works/pi-ai";
+import type { Model, Provider, RefreshModelsContext } from "@earendil-works/pi-ai";
 import { openaiCodexProvider } from "@earendil-works/pi-ai/providers/openai-codex";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import { createFastProvider } from "../src/codex/fast-provider.ts";
@@ -38,7 +38,7 @@ for (const method of ["stream", "streamSimple"] as const) {
 		let responses = 0; let observed = 0; let sent: Record<string, unknown> | undefined;
 		const controller = new AbortController();
 		const fast = new FastModeController(); fast.setEnabled(true); fast.setCapability({ kind: "supported" });
-		const provider = createFastProvider((capturedModel, apiKey, signal) => {
+		const provider = createFastProvider(openaiCodexProvider(), (capturedModel, apiKey, signal) => {
 			prepared++; assert.equal(apiKey, a); assert.equal(current, a);
 			assert.equal(signal, controller.signal); assert.equal(capturedModel, model);
 			return async (payload) => {
@@ -88,7 +88,7 @@ for (const method of ["stream", "streamSimple"] as const) {
 test("undefined preserves the previous payload while null is a real replacement", async () => {
 	for (const first of ["undefined", "replace", "null"] as const) {
 		let seen: unknown; let sent: Record<string, unknown> | undefined;
-		const provider = createFastProvider(() => async (payload) => {
+		const provider = createFastProvider(openaiCodexProvider(), () => async (payload) => {
 			seen = payload;
 			if (first === "null") return { model: model.id, input: [], marker: "from-null" };
 			return undefined;
@@ -108,7 +108,7 @@ test("concurrent stream and streamSimple requests retain independent auth-bound 
 	let release!: () => void;
 	const gate = new Promise<void>((resolve) => { release = resolve; });
 	const captured: string[] = []; const seen = new Map<string, string>();
-	const provider = createFastProvider((_model, apiKey) => {
+	const provider = createFastProvider(openaiCodexProvider(), (_model, apiKey) => {
 		captured.push(apiKey!);
 		return async (payload) => {
 			await gate;
@@ -131,13 +131,49 @@ test("concurrent stream and streamSimple requests retain independent auth-bound 
 });
 
 test("native provider metadata and methods remain available without legacy registration", () => {
-	const builtin = openaiCodexProvider(); const provider = createFastProvider(() => async () => undefined);
+	const builtin = openaiCodexProvider(); const provider = createFastProvider(builtin, () => async () => undefined);
 	assert.deepEqual(provider.getModels(), builtin.getModels());
 	assert.equal(provider.id, builtin.id); assert.equal(provider.name, builtin.name); assert.equal(provider.baseUrl, builtin.baseUrl);
 	assert.deepEqual(Object.keys(provider.auth), Object.keys(builtin.auth));
 	for (const key of Object.keys(builtin) as (keyof typeof builtin)[]) {
 		assert.equal(typeof provider[key], typeof builtin[key], key);
 	}
+});
+
+test("live catalog, refresh publication, auth and prototype methods retain the native receiver", async () => {
+	const native = openaiCodexProvider();
+	let models = [model];
+	let received: RefreshModelsContext | undefined;
+	const prototype = {
+		getModels(this: Provider) { assert.equal(this, original); return models; },
+		getAllModels(this: Provider) { assert.equal(this, original); return models; },
+		filterModels(this: Provider, entries: readonly Model<string>[]) { assert.equal(this, original); return entries; },
+		filterAllModels(this: Provider, entries: readonly Model<string>[]) { assert.equal(this, original); return entries; },
+		async refreshModels(this: Provider, context: RefreshModelsContext) {
+			assert.equal(this, original); received = context;
+			if (!context.signal.aborted) await context.publish({ update: () => { models = [...models, { ...model, id: "synthetic-later" }]; } });
+		},
+	};
+	const original = Object.assign(Object.create(prototype), native) as Provider;
+	// Exercise non-enumerable/prototype methods, not only object-literal closures.
+	for (const key of Object.keys(prototype)) Reflect.deleteProperty(original, key);
+	const provider = createFastProvider(original, () => async () => undefined);
+	assert.equal(provider.auth, original.auth);
+	assert.equal(provider.getModels(), models);
+	models = [...models, { ...model, id: "gpt-6.1-terra", name: "Synthetic Terra" }];
+	assert.equal(provider.getModels(), models);
+	assert.equal(provider.getAllModels!(), models);
+	assert.equal(provider.filterModels!(models, undefined), models);
+	assert.equal(provider.filterAllModels!(models, undefined), models);
+	const context: RefreshModelsContext = { allowNetwork: false, signal: new AbortController().signal,
+		publish: async ({ update }) => { update?.(); return true; } };
+	await provider.refreshModels!(context);
+	assert.equal(received, context, "pass publish, signal, stored and refresh policy unchanged");
+	assert.equal(provider.getModels(), models);
+	assert.ok(models.some((entry) => entry.id === "synthetic-later"));
+	const before = models;
+	await provider.refreshModels!({ ...context, signal: AbortSignal.abort() });
+	assert.equal(provider.getModels(), before);
 });
 
 test("request-local supported capability overrides shared unsupported UI capability", () => {

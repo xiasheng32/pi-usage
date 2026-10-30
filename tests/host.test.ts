@@ -4,12 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { zstdDecompressSync } from "node:zlib";
-import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
+import { InMemoryCredentialStore, InMemoryModelsStore } from "@earendil-works/pi-ai";
 import { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import piUsage from "../extensions/index.ts";
 import { FastCatalog } from "../src/codex/fast-catalog.ts";
-import { FAST_ENTRY } from "../src/codex/fast-mode.ts";
+import { FAST_ENTRY, FastModeController } from "../src/codex/fast-mode.ts";
 
 process.env.PI_OFFLINE = "1";
 const syntheticToken = "synthetic." + Buffer.from(JSON.stringify({
@@ -22,6 +22,7 @@ for (const transport of ["sse", "websocket"] as const) {
 		t.after(() => rm(directory, { recursive: true, force: true }));
 		t.mock.method(FastCatalog.prototype, "read", async () => ({ kind: "supported" as const }));
 		t.mock.method(FastCatalog.prototype, "readForAuth", async () => ({ kind: "supported" as const }));
+		const transforms = t.mock.method(FastModeController.prototype, "transform");
 		const sent: Record<string, unknown>[] = [];
 		const observed: unknown[] = [];
 		const reported: unknown[] = [];
@@ -63,8 +64,14 @@ for (const transport of ["sse", "websocket"] as const) {
 		const credentials = new InMemoryCredentialStore();
 		await credentials.modify("openai-codex", async () => ({ type: "oauth", access: syntheticToken,
 			refresh: "synthetic-refresh", expires: Date.now() + 86400_000 }));
-		const runtime = await ModelRuntime.create({ credentials, modelsPath: null, allowModelNetwork: false });
-		const model = runtime.getModels("openai-codex").find((candidate) => candidate.api === "openai-codex-responses");
+		const modelsStore = new InMemoryModelsStore();
+		const seed = await ModelRuntime.create({ credentials, modelsPath: null, modelsStore, allowModelNetwork: false });
+		const template = seed.getModels("openai-codex")[0]!;
+		await modelsStore.write("openai-codex", { lastModified: Number.MAX_SAFE_INTEGER, models: [...seed.getModels("openai-codex"),
+			{ ...template, id: "gpt-6.1-terra", name: "Synthetic cached Terra" }] });
+		const runtime = await ModelRuntime.create({ credentials, modelsPath: null, modelsStore, allowModelNetwork: false });
+		const before = runtime.getModels("openai-codex");
+		const model = before.find((candidate) => candidate.id === "gpt-6.1-terra");
 		assert.ok(model, "installed host must expose a built-in Codex subscription model");
 		assert.equal(runtime.isUsingOAuth("openai-codex"), true);
 		const settings = SettingsManager.inMemory({ transport, cacheWarming: "off", compaction: { enabled: false }, retry: { enabled: false } });
@@ -76,12 +83,16 @@ for (const transport of ["sse", "websocket"] as const) {
 			noExtensions: true, noSkills: true, noPromptTemplates: true, noContextFiles: true, disabledBuiltinExtensions: ["mcp"],
 			extensionFactories: [piUsage, observer] });
 		await loader.reload();
+		assert.deepEqual(runtime.getModels("openai-codex"), before, "factory-only enumeration preserves the catalog");
 		const manager = SessionManager.inMemory(directory);
 		const { session, extensionsResult } = await createAgentSession({ cwd: directory, agentDir: directory, modelRuntime: runtime,
 			model, thinkingLevel: "high", noTools: "all", settingsManager: settings, sessionManager: manager, resourceLoader: loader });
 		t.after(() => session.dispose());
 		assert.deepEqual(extensionsResult.errors, []);
 		await session.bindExtensions({ mode: "rpc", onError: (error) => { errors.push(error); } });
+		assert.deepEqual(runtime.getModels("openai-codex"), before, "session installation preserves cached models and metadata");
+		assert.equal(session.model?.id, "gpt-6.1-terra");
+		assert.equal(typeof runtime.getProvider("openai-codex")?.refreshModels, "function");
 		await session.prompt("Synthetic initial request");
 		assert.equal(sent.length, 1);
 		await session.prompt("/fast on");
@@ -96,6 +107,17 @@ for (const transport of ["sse", "websocket"] as const) {
 		assert.equal(reported.filter((event) => (event as { type: string }).type === "response.completed").length, 3);
 		assert.deepEqual(manager.getEntries().filter((entry) => entry.type === "custom" && entry.customType === FAST_ENTRY)
 			.map((entry) => (entry as { data: { enabled: boolean } }).data.enabled), [true, false]);
+		for (let reload = 0; reload < 2; reload++) {
+			await session.reload({ beforeSessionStart: () => {
+				assert.equal(runtime.getRegisteredNativeProvider("openai-codex"), undefined, "reload removes the old controller wrapper");
+				assert.deepEqual(runtime.getModels("openai-codex"), before);
+			} });
+			assert.deepEqual(runtime.getModels("openai-codex"), before);
+			await session.prompt("/fast on");
+			await session.prompt("Synthetic post-reload request");
+			assert.equal(sent.at(-1)?.service_tier, "priority");
+		}
+		assert.equal(transforms.mock.callCount(), sent.length, "exactly one Fast transform per request across reloads");
 		assert.deepEqual(errors, []);
 	});
 }
