@@ -9,8 +9,8 @@
  * - `openai-codex` OAuth subscription → quota, reset cards and session-local
  *   Fast mode, see src/codex/*
  *
- * Commands: `/pi-usage` (refresh + open the active provider's panel) and
- * `/fast on|off` (Codex subscription only).
+ * Commands: `/pi-usage` (refresh + open the active provider's panel),
+ * `/fast on|off` and `/reset` (Codex subscription only).
  *
  * Refresh: session start (immediate) + 60s poll + agent_settled (30s throttle).
  * The footer entry exists only while the active model belongs to a supported
@@ -387,8 +387,29 @@ export default function piUsage(pi: ExtensionAPI): void {
 			}
 			fast.setEnabled(enabled);
 			updateStatus(ctx);
-			ctx.ui.notify(enabled ? "Fast 路由已开启，仅当前会话（priority）；订阅额度按标准的 2.5 倍消耗。面板独立显示服务端返回档位。"
+			ctx.ui.notify(enabled ? "Fast 路由已开启，仅当前会话（priority）；订阅额度按标准的 2.5 倍消耗。开关不代表服务端已确认加速。"
 				: "Fast 已关闭，仅当前会话。", "info");
+		},
+	});
+
+	pi.registerCommand("reset", {
+		description: "选择并确认使用一张 Codex 重置卡",
+		handler: async (args, ctx) => {
+			activeContext = ctx;
+			if (!ctx.hasUI) return;
+			if (args.trim()) {
+				ctx.ui.notify("用法：/reset", "warning");
+				return;
+			}
+			if (!usesCodexSubscription(ctx)) {
+				ctx.ui.notify("重置卡仅适用于官方 Codex 订阅 OAuth 模型，请先切换并登录 openai-codex。", "warning");
+				return;
+			}
+			const instance = getQuotaController(ctx);
+			await instance.useResetCredit({
+				select: (title, options) => ctx.ui.select(title, options),
+				notify: (message, type) => ctx.ui.notify(message, type),
+			});
 		},
 	});
 
@@ -426,18 +447,10 @@ export default function piUsage(pi: ExtensionAPI): void {
 			await instance.refresh();
 			if (quota !== instance) return; // Context may have been invalidated while awaiting auth.
 			if (ctx.mode === "tui") {
-				while (quota === instance) {
-					const action = await ctx.ui.custom<"use" | undefined>(
-						(tui, _theme, _keybindings, done) => new QuotaPanel(tui, ctx, instance, done, fast),
-						{ overlay: true, overlayOptions: { anchor: "center", width: 68, margin: 1 } },
-					);
-					if (quota !== instance || action !== "use") break;
-					// The overlay is disposed before opening built-in dialogs. Only this u path consumes.
-					await instance.useResetCredit({
-						select: (title, options) => ctx.ui.select(title, options),
-						notify: (message, type) => ctx.ui.notify(message, type),
-					});
-				}
+				await ctx.ui.custom<undefined>(
+					(tui, _theme, _keybindings, done) => new QuotaPanel(tui, ctx, instance, () => done(undefined), fast),
+					{ overlay: true, overlayOptions: { anchor: "center", width: 68, margin: 1 } },
+				);
 			} else {
 				const state = instance.getState();
 				ctx.ui.notify([...fast.details(ctx.model, usesCodexSubscription(ctx)), "", ...quotaDetailLines(state, Date.now())].join("\n"), state.error ? "warning" : "info");

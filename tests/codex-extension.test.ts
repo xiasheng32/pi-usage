@@ -149,7 +149,7 @@ const streamEvent = (tier?: string) => ({ provider: codex.provider, api: codex.a
 
 test("only /fast on and off change Fast; commands run offline without looking up credentials", async () => {
 	const h = harness();
-	assert.deepEqual([...h.commands.keys()].sort(), ["fast", "pi-usage"]);
+	assert.deepEqual([...h.commands.keys()].sort(), ["fast", "pi-usage", "reset"]);
 	await start(h);
 	assert.ok(!h.status()?.includes("Fast"));
 	await h.command("fast", " on ");
@@ -435,8 +435,8 @@ test("the Fast card shows reference rates without claiming the server response t
 	assert.match(h.status()!, / · Fast$/);
 	await h.command("pi-usage");
 	const detail = h.panels.at(-1)!.render(68).join("\n");
-	assert.match(detail, /Fast\s+已开启/);
-	assert.match(detail, /订阅额度消耗\s+×2\.5/);
+	assert.match(detail, /Fast mode\s+on/);
+	assert.match(detail, /额度消耗\s+×2\.5/);
 	assert.match(detail, /仅当前会话/);
 	assert.doesNotMatch(detail, /服务端标准|模型能力|请求档位|最近服务端档位/);
 	assert.ok(!detail.includes("Fast 未生效"));
@@ -555,15 +555,15 @@ test("supported Fast footer stays stable across unfinished requests and context 
 	}
 });
 
-test("the detail panel is read-only for Fast, with only u retaining the reset action", async (t: TestContext) => {
+test("the detail panel is read-only and u no longer invokes reset", async (t: TestContext) => {
 	const h = harness();
 	await start(h);
 	await h.command("fast", "on");
 	await h.command("pi-usage");
 	const output = h.panels[0]!.render(68).join("\n");
-	assert.match(output, /🍧 Codex 额度/);
-	assert.match(output, /Fast\s+已开启/);
-	assert.match(output, /订阅额度消耗\s+×2\.5/);
+	assert.match(output, /Codex 额度/);
+	assert.match(output, /Fast mode\s+on/);
+	assert.match(output, /额度消耗\s+×2\.5/);
 	assert.match(output, /模型速度\s+未提供/);
 	assert.match(output, /仅当前会话/);
 	assert.doesNotMatch(output, /最近响应|等待响应|\/fast on|不会自动消耗|不会自动消费|f 切换/);
@@ -578,11 +578,11 @@ test("the detail panel is read-only for Fast, with only u retaining the reset ac
 	assert.deepEqual(actions, []);
 	panel.handleInput("u");
 	assert.deepEqual(actions, []);
-	assert.match(h.notices.at(-1)!.message, /离线/);
 	t.mock.method(controller, "getResetButton", () => ({ enabled: true, phase: "ready" as const, hint: "synthetic ready card" }));
 	panel.handleInput("u");
-	panel.handleInput("u");
-	assert.deepEqual(actions, ["use"], "reset action is emitted exactly once and never consumed by the panel itself");
+	assert.deepEqual(actions, [], "u never consumes or closes the panel");
+	panel.handleInput("q");
+	assert.deepEqual(actions, [undefined]);
 	assert.equal(h.selected, 0);
 	assert.equal(h.authCalls, 0);
 	controller.dispose();
@@ -633,13 +633,13 @@ test("short terminals scroll from reset details to the Fast reference rates", ()
 	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, fast);
 	panel.render(40);
 	panel.handleInput("\x1b[F");
-	assert.match(panel.render(40).join("\n"), /订阅额度消耗\s+×1\.0/);
+	assert.match(panel.render(40).join("\n"), /额度消耗\s+×1\.0/);
 	fast.setCapability({ kind: "supported", speedMultiplier: 2 });
 	fast.setEnabled(true);
 	fast.transform(payload(), codex, true);
 	fast.observe(streamEvent("fast"));
 	let output = panel.render(40).join("\n");
-	assert.match(output, /订阅额度消耗\s+×2\.5/);
+	assert.match(output, /额度消耗\s+×2\.5/);
 	assert.match(output, /模型速度\s+×2\.0/);
 	assert.match(output, /仅当前会话/);
 	assert.doesNotMatch(output, /服务端 Fast|模型能力|请求档位|\/fast on|f 切换/);
@@ -681,20 +681,20 @@ test("dashboard orders quota, reset cards with their button, Fast, and a time-on
 	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, fast);
 	const lines = panel.render(68);
 	const text = lines.join("\n");
-	const positions = ["订阅额度", "重置卡", "#1", "#3", "[u 重置]", "Fast", "已开启", "订阅额度消耗", "模型速度", "仅当前会话", "更新于"].map((part) => text.indexOf(part));
+	const positions = ["订阅额度", "重置卡", "#1", "#3", "Fast mode", "on", "额度消耗", "模型速度", "仅当前会话", "更新于"].map((part) => text.indexOf(part));
 	assert.ok(positions.every((position, index) => position >= 0 && (!index || position > positions[index - 1]!)), text);
-	assert.match(lines[1]!, /🍧 Codex 额度.*PLUS.*可用/);
+	assert.match(lines[1]!, /Codex 额度.*PLUS.*可用/);
 	assert.match(text, /5h\s+│[█░]+│\s+75%/);
-	assert.match(text, /#1 到期 2026-10-/);
-	assert.equal(lines.filter((line) => line.includes("[u 重置]")).length, 1);
+	assert.match(text, /#1\s+到期 10-/);
+	assert.doesNotMatch(text, /u 重置|仅显示接口返回记录|🍧|🎟|⚡/);
 	assert.equal(lines.filter((line) => line.includes("更新于")).length, 1);
 	assert.match(lines.at(-2)!, /更新于 \d{2}:\d{2} · 本机时区/);
 	assert.doesNotMatch(text, /已用|更新：|选卡后确认|不会自动消费|按 u 选卡|\/fast on|当前模型：|请求档位：|Enter\/Esc/);
-	const fastStart = lines.findIndex((line) => line.includes("Fast"));
-	assert.match(lines[fastStart]!, /已开启/);
-	assert.match(lines[fastStart + 2]!, /订阅额度消耗\s+×2\.5/);
-	assert.match(lines[fastStart + 3]!, /模型速度\s+未提供/);
-	assert.match(lines[fastStart + 5]!, /仅当前会话/);
+	const fastStart = lines.findIndex((line) => line.includes("Fast mode"));
+	assert.match(lines[fastStart]!, /\bon\b/);
+	assert.match(lines[fastStart + 3]!, /额度消耗\s+×2\.5/);
+	assert.match(lines[fastStart + 4]!, /模型速度\s+未提供/);
+	assert.match(lines[fastStart + 7]!, /仅当前会话/);
 	controller.dispose();
 });
 
@@ -717,10 +717,10 @@ test("zero-card dashboard aligns 20-column tubes, preserves rounded cards and a 
 		assert.ok(line.startsWith("│ │ ") && line.endsWith(" │ │"), line);
 		return line.slice(4, -4);
 	};
-	for (const heading of ["订阅额度", "🎟 重置卡", "可用 0 张", "暂无卡片记录", "[重置不可用]", "仅当前会话"]) {
+	for (const heading of ["订阅额度", "重置卡", "可用 0 张", "暂无卡片记录", "仅当前会话"]) {
 		assert.ok(lines.some((line) => line.includes(heading)), `missing ${heading}`);
 	}
-	for (const heading of ["[重置不可用]", "仅当前会话"]) {
+	for (const heading of ["仅当前会话"]) {
 		const inner = innerOf(lines.find((line) => line.includes(heading))!);
 		assert.equal(inner.length - inner.trimStart().length, Math.floor((60 - visibleWidth(heading)) / 2), heading);
 	}
@@ -735,7 +735,7 @@ test("zero-card dashboard aligns 20-column tubes, preserves rounded cards and a 
 	assert.equal(lines.filter((line) => line.includes("更新于")).length, 1);
 	const footer = lines.at(-2)!.slice(2, -2);
 	assert.equal(footer.length - footer.trimStart().length, Math.floor((64 - visibleWidth(footer.trim())) / 2));
-	assert.equal(text.split("[重置不可用]").length - 1, 1);
+	assert.doesNotMatch(text, /u 重置|重置不可用/);
 	assert.doesNotMatch(text, /┌|┐|└|┘|已用|不推断|结果未决/);
 	assert.ok(lines.length <= 64);
 	controller.dispose();
@@ -763,7 +763,7 @@ test("tube percentages and reset dates align; unknown and overdue reset times re
 	controller.dispose();
 });
 
-test("reset groups preserve consecutive type, status, indexes, expired dates and source warnings", (t: TestContext) => {
+test("individual reset boxes preserve type, status, indexes, expired dates and warnings", (t: TestContext) => {
 	const now = Date.UTC(2026, 9, 15, 11, 6);
 	t.mock.method(Date, "now", () => now);
 	const h = harness();
@@ -783,17 +783,15 @@ test("reset groups preserve consecutive type, status, indexes, expired dates and
 	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, new FastModeController());
 	const lines = panel.render(68);
 	const text = lines.join("\n");
-	const groups = ["完全重置 · 可用", "完全重置 · 已使用", "重置卡 · 已过期", "完全重置 · 使用中"];
-	for (const title of groups) assert.ok(text.includes(title), title);
-	assert.equal(text.split("完全重置 · 可用").length - 1, 2, "nonadjacent groups remain separate");
 	for (let index = 1; index <= 6; index++) assert.equal(text.split(`#${index} `).length - 1, 1, `record ${index}`);
-	assert.match(text, /#2 到期 未知.*有效期未知/);
-	assert.match(text, /#3 使用 2026-/);
-	assert.match(text, /#5 到期 .*已到期，待刷新/);
+	assert.match(text, /#2\s+到期 未知.*有效期未知/);
+	assert.match(text, /#3\s+使用 .*已使用/);
+	assert.match(text, /#4\s+到期 .*非完全重置.*已过期/);
+	assert.match(text, /#5\s+到期 .*已到期，待刷新/);
+	assert.match(text, /#6\s+到期 .*使用中/);
 	assert.match(text, /重置结果不确定，请刷新/);
 	assert.match(text, /查询失败；明细为过期缓存/);
-	assert.match(text, /仅显示接口返回记录，不推断完整历史/);
-	assert.ok(text.indexOf("[重置不可用]") < text.indexOf("仅显示接口返回记录"));
+	assert.doesNotMatch(text, /仅显示接口返回记录|u 重置|完全重置 · 可用/);
 	assert.ok(lines.every((line) => visibleWidth(line) <= 68));
 	controller.dispose();
 });
@@ -809,12 +807,12 @@ test("Fast card aligns reference rates, centers session note and keeps rounded b
 	for (const enabled of [false, true]) {
 		fast.setEnabled(enabled);
 		const lines = panel.render(68);
-		const title = lines.findIndex((line) => line.includes("⚡ Fast"));
-		const quota = lines.find((line) => line.includes("订阅额度消耗"))!;
+		const title = lines.findIndex((line) => line.includes("Fast mode"));
+		const quota = lines.find((line) => line.includes("额度消耗"))!;
 		const speed = lines.find((line) => line.includes("模型速度"))!;
 		const note = lines.find((line) => line.includes("仅当前会话"))!;
 		assert.match(lines[title - 1]!, /╭─+╮/);
-		assert.match(lines[title]!, enabled ? /已开启/ : /已关闭/);
+		assert.match(lines[title]!, enabled ? /\bon\b/ : /\boff\b/);
 		assert.match(quota, enabled ? /×2\.5/ : /×1\.0/);
 		assert.match(speed, enabled ? /×2\.0/ : /×1\.0/);
 		assert.equal(visibleWidth(quota.slice(0, quota.indexOf("×"))), visibleWidth(speed.slice(0, speed.indexOf("×"))));
@@ -825,30 +823,63 @@ test("Fast card aligns reference rates, centers session note and keeps rounded b
 	controller.dispose();
 });
 
-test("simple reset keys remain centered and styled for ready, disabled and busy states", (t: TestContext) => {
+test("all card headings align, records and metrics are centered, and switch colors reflect state", (t: TestContext) => {
+	const h = harness();
+	h.terminal.rows = 90;
+	const state = panelState(Date.now(), 3);
+	const controller = new QuotaController({ offline: true, resolveAuth: async () => { throw new Error("Unexpected credentials"); } });
+	t.mock.method(controller, "getState", () => state);
+	t.mock.method(controller, "getResetButton", () => ({ enabled: true, phase: "ready" as const, hint: "ready" }));
+	const calls: { color: string; text: string }[] = [];
+	t.mock.method(h.rawContext.ui.theme, "fg", (color: string, text: string) => { calls.push({ color, text }); return text; });
+	const fast = new FastModeController();
+	fast.setCapability({ kind: "supported", speedMultiplier: 1.5 });
+	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, fast);
+	for (const enabled of [false, true]) {
+		fast.setEnabled(enabled);
+		calls.length = 0;
+		const lines = panel.render(68);
+		const names = ["订阅额度", "重置卡", "Fast mode"];
+		const columns = names.map((name) => {
+			const line = lines.find((entry) => entry.includes(name))!;
+			return visibleWidth(line.slice(0, line.indexOf(name)));
+		});
+		assert.deepEqual(columns, [columns[0], columns[0], columns[0]]);
+		assert.equal(calls.find((call) => call.text === (enabled ? "on" : "off"))?.color, enabled ? "success" : "error");
+		assert.equal(calls.find((call) => call.text === "可用 3 张")?.color, "success");
+		const recordIndexes = [1, 2, 3].map((index) => lines.findIndex((line) => line.includes(`#${index} `)));
+		const borderWidths = recordIndexes.map((index) => {
+			assert.match(lines[index - 1]!, /╭─+╮/);
+			assert.match(lines[index + 1]!, /╰─+╯/);
+			return lines[index - 1]!.match(/╭(─+)╮/)![1]!.length;
+		});
+		assert.deepEqual(borderWidths, [borderWidths[0], borderWidths[0], borderWidths[0]]);
+		const row = lines.findIndex((line) => line.includes("额度消耗"));
+		assert.match(lines[row - 1]!, /╭─+╮/);
+		assert.match(lines[row + 2]!, /╰─+╯/);
+		assert.doesNotMatch(lines.join("\n"), /🍧|🎟|⚡|u 重置|仅显示接口返回记录/);
+	}
+	controller.dispose();
+});
+
+test("reset count colors and disabled hints remain visible without a panel action", (t: TestContext) => {
 	const h = harness();
 	h.terminal.rows = 64;
 	const controller = new QuotaController({ offline: true, resolveAuth: async () => { throw new Error("Unexpected credentials"); } });
-	t.mock.method(controller, "getState", () => panelState(Date.now(), 0));
-	const calls: { text: string; options: { fg?: unknown; bold?: boolean } | undefined }[] = [];
-	t.mock.method(h.rawContext.ui.theme, "style", (text: string, options?: { fg?: unknown; bold?: boolean }) => {
-		calls.push({ text, options }); return text;
-	});
+	const state = panelState(Date.now(), 3);
+	t.mock.method(controller, "getState", () => state);
+	const calls: { color: string; text: string }[] = [];
+	t.mock.method(h.rawContext.ui.theme, "fg", (color: string, text: string) => { calls.push({ color, text }); return text; });
 	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, new FastModeController());
-	for (const [phase, label, color] of [["ready", "[u 重置]", "accent"], ["disabled", "[重置不可用]", "dim"], ["busy", "[重置中…]", "warning"]] as const) {
-		t.mock.method(controller, "getResetButton", () => ({ enabled: phase === "ready", phase, hint: "synthetic reason" }));
+	for (const [count, stale, expected] of [[3, false, "success"], [0, false, "dim"], [3, true, "warning"]] as const) {
+		state.resetCredits!.snapshot!.availableCount = count;
+		state.stale = stale;
+		t.mock.method(controller, "getResetButton", () => ({ enabled: false, phase: "disabled" as const, hint: "synthetic reason" }));
 		calls.length = 0;
-		const lines = panel.render(68);
-		assert.equal(lines.filter((line) => line.includes(label)).length, 1);
-		const inner = lines.find((line) => line.includes(label))!.slice(4, -4);
-		assert.equal(inner.length - inner.trimStart().length, Math.floor((60 - visibleWidth(label)) / 2));
-		assert.equal(calls.find((call) => call.text === label)?.options?.fg, color);
-		if (phase === "ready") assert.equal(calls.find((call) => call.text === label)?.options?.bold, true);
-		assert.doesNotMatch(lines.join("\n"), /┌|┐|└|┘/);
-		panel.render(20);
-		panel.handleInput("\x1b[F");
-		assert.ok(panel.render(20).some((line) => line.includes(label)));
-		panel.handleInput("\x1b[H");
+		const output = panel.render(68).join("\n");
+		assert.equal(calls.find((call) => call.text.startsWith("可用 "))?.color, expected);
+		assert.match(output, /synthetic reason/);
+		assert.doesNotMatch(output, /u 重置|\[重置不可用\]/);
 	}
 	controller.dispose();
 });
@@ -923,7 +954,7 @@ test("the three section headings take distinct rgb colors per theme appearance",
 		return text;
 	});
 	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, new FastModeController());
-	const headings = ["订阅额度", "重置卡", "Fast"];
+	const headings = ["订阅额度", "重置卡", "Fast mode"];
 	const expected = {
 		dark: [rgbColor(94, 234, 212), rgbColor(196, 181, 253), rgbColor(56, 189, 248)],
 		light: [rgbColor(15, 118, 110), rgbColor(109, 40, 217), rgbColor(2, 132, 199)],
@@ -960,8 +991,7 @@ test("reset results and disabled or busy hints stay inside the card section with
 		const text = panel.render(68).join("\n");
 		const cardStart = text.indexOf("重置卡");
 		const fastStart = text.indexOf("Fast");
-		const label = phase === "busy" ? "[重置中…]" : "[重置不可用]";
-		for (const message of [state.resetUse.message, hint, label]) {
+		for (const message of [state.resetUse.message, hint]) {
 			assert.ok(text.indexOf(message) > cardStart && text.indexOf(message) < fastStart, message);
 			assert.equal(text.split(message).length - 1, 1, message);
 		}
@@ -972,7 +1002,7 @@ test("reset results and disabled or busy hints stay inside the card section with
 	controller.dispose();
 });
 
-test("all cards remain scrollable while the update footer is fixed and u works off-screen", (t: TestContext) => {
+test("all cards remain scrollable while the update footer is fixed and u has no effect", (t: TestContext) => {
 	const h = harness();
 	h.terminal.rows = 16;
 	const state = panelState(Date.now(), 30);
@@ -997,7 +1027,7 @@ test("all cards remain scrollable while the update footer is fixed and u works o
 	assert.doesNotMatch(panel.render(68).join("\n"), /\[u 重置\]/);
 	panel.handleInput("u");
 	panel.handleInput("u");
-	assert.deepEqual(actions, ["use"]);
+	assert.deepEqual(actions, []);
 	assert.equal(h.authCalls, 0);
 	assert.equal(h.selected, 0);
 	controller.dispose();
@@ -1100,6 +1130,66 @@ function onlineQuotaHarness(t: TestContext, postStatus = 503) {
 	return { h, posts, get gets() { return gets; }, advance: (milliseconds: number) => { now += milliseconds; }, poll: () => poll() };
 }
 
+test("/reset rejects invalid usage, unrelated models and offline requests without selection", async () => {
+	const h = harness();
+	await start(h);
+	await h.command("reset", "unexpected");
+	assert.match(h.notices.at(-1)!.message, /用法：\/reset/);
+	await h.command("reset");
+	assert.match(h.notices.at(-1)!.message, /离线模式/);
+	assert.equal(h.selected, 0);
+	assert.equal(h.authCalls, 0);
+	h.rawContext.model = { ...codex, provider: "google" };
+	await h.fire("model_select");
+	await h.command("reset");
+	assert.match(h.notices.at(-1)!.message, /仅适用于官方 Codex/);
+	assert.equal(h.selected, 0);
+	await h.fire("session_shutdown", { reason: "quit" });
+	const headless = harness({ hasUI: false });
+	await start(headless);
+	await headless.command("reset");
+	assert.equal(headless.selected, 0);
+	assert.equal(headless.authCalls, 0);
+	await headless.fire("session_shutdown", { reason: "quit" });
+});
+
+test("/reset never consumes on selection or confirmation cancellation", async (t: TestContext) => {
+	const { h, posts } = onlineQuotaHarness(t);
+	await start(h);
+	let calls = 0;
+	t.mock.method(h.ctx.ui, "select", async (_title: string, options: string[]) => {
+		calls++;
+		return calls === 1 ? options[0] : "取消";
+	});
+	await h.command("reset");
+	assert.equal(calls, 2, "selection and explicit confirmation are separate dialogs");
+	assert.equal(posts.length, 0);
+	calls = 0;
+	t.mock.method(h.ctx.ui, "select", async () => { calls++; return undefined; });
+	await h.command("reset");
+	assert.equal(calls, 1);
+	assert.equal(posts.length, 0);
+});
+
+test("switching away during /reset selection cancels the flow without consuming", async (t: TestContext) => {
+	const { h, posts } = onlineQuotaHarness(t);
+	await start(h);
+	let announce!: () => void;
+	const started = new Promise<void>((resolve) => { announce = resolve; });
+	let finish!: (value: string | undefined) => void;
+	t.mock.method(h.ctx.ui, "select", async () => {
+		announce();
+		return new Promise<string | undefined>((resolve) => { finish = resolve; });
+	});
+	const command = h.command("reset");
+	await started;
+	h.rawContext.model = { ...codex, provider: "google" };
+	await h.fire("model_select");
+	finish(undefined);
+	await command;
+	assert.equal(posts.length, 0);
+});
+
 test("idle logout clears the HUD and cached account without model_select, and polling resumes login", async (t: TestContext) => {
 	const online = onlineQuotaHarness(t);
 	const { h } = online;
@@ -1149,22 +1239,13 @@ for (const postStatus of [503, 429]) {
 	test(`same-session provider switching retains reset protection after HTTP ${postStatus}`, async (t: TestContext) => {
 		const online = onlineQuotaHarness(t, postStatus);
 		const { h, posts } = online;
-		let use = false;
 		t.mock.method(h.ctx.ui, "select", async (_title: string, options: string[]) => options.at(-1));
-		h.rawContext.ui.custom = async (factory: Factory) => {
-			let action: "use" | undefined;
-			const panel = factory(h.tui, undefined, undefined, (value) => { action = value; });
-			h.panels.push(panel);
-			panel.render(68);
-			if (use) { use = false; panel.handleInput("u"); }
-			panel.handleInput("q");
-			return action;
-		};
-		const attempt = async () => { use = true; await h.command("pi-usage"); };
+		const attempt = async () => { await h.command("reset"); };
 		await start(h);
+		await h.command("pi-usage");
+		const instance = (h.panels.at(-1)! as unknown as { controller: QuotaController }).controller;
 		await attempt();
 		assert.equal(posts.length, 1);
-		const instance = (h.panels.at(-1)! as unknown as { controller: QuotaController }).controller;
 		await attempt();
 		assert.equal(posts.length, 1);
 		h.rawContext.model = { ...codex, provider: "google" };
@@ -1175,6 +1256,7 @@ for (const postStatus of [503, 429]) {
 		await h.fire("model_select");
 		await tick();
 		await attempt();
+		await h.command("pi-usage");
 		const resumed = (h.panels.at(-1)! as unknown as { controller: QuotaController }).controller;
 		assert.equal(resumed, instance, "model switches retain the session's safety controller");
 		assert.equal(posts.length, 1, "neither an uncertain POST nor a 429 may be retried by switching providers");

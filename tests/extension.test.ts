@@ -112,9 +112,9 @@ afterEach(() => {
 	else process.env.PI_OFFLINE = previousOffline;
 });
 
-test("registers exactly /pi-usage and /fast with no legacy provider commands", () => {
+test("registers /pi-usage, /fast and /reset without legacy provider commands", () => {
 	const h = harness();
-	assert.deepEqual([...h.commands.keys()].sort(), ["fast", "pi-usage"]);
+	assert.deepEqual([...h.commands.keys()].sort(), ["fast", "pi-usage", "reset"]);
 });
 
 test("one footer key follows the active provider and clears elsewhere", async () => {

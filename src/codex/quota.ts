@@ -376,7 +376,7 @@ export class QuotaController {
 		return this.inflight;
 	}
 
-	/** Called only after the detail panel yields its u action. Entire flow is single-flight. */
+	/** Interactive reset flow; selection and confirmation are mandatory and single-flight. */
 	async useResetCredit(ui?: ResetCreditUI): Promise<void> {
 		if (!ui || this.disposed) return;
 		if (this.options.offline) { ui.notify("离线模式：不会查询或使用重置卡。", "warning"); return; }

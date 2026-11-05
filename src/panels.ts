@@ -10,7 +10,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { TUI } from "@earendil-works/pi-tui";
 import { matchesKey, rgbColor, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { BalanceRuntime } from "./balance/core.ts";
-import { detailSections, isLowQuota, localTime, percentage, quotaBar, resetRemaining, statusLine, windowLabel } from "./codex/quota.ts";
+import { detailSections, isLowQuota, localTime, percentage, quotaBar, statusLine, windowLabel } from "./codex/quota.ts";
 import type { QuotaController } from "./codex/quota.ts";
 import type { FastModeController } from "./codex/fast-mode.ts";
 import { usesCodexSubscription } from "./registry.ts";
@@ -143,7 +143,7 @@ export class QuotaPanel {
 		const pair = (left: string, right: string, columns: number) => left + " ".repeat(Math.max(2, columns - visibleWidth(left) - visibleWidth(right))) + right;
 		const paint = (line: string) => {
 			if ((state.resetUse?.warning && line === state.resetUse.message)
-				|| /过期缓存|查询失败|查询限流|查询超时|格式异常|已到期|结果不确定|未完成|被拒绝/.test(line)) return theme.fg("warning", line);
+				|| /过期缓存|查询失败|查询限流|查询超时|格式异常|已到期|已过期|状态未知|有效期未知|非完全重置|结果不确定|未完成|被拒绝/.test(line)) return theme.fg("warning", line);
 			if (line.startsWith("   ") || /不推断|未提供/.test(line)) return theme.fg("dim", line);
 			return line;
 		};
@@ -204,7 +204,7 @@ export class QuotaPanel {
 					? theme.style(part, { fg: lowQuotaColor }) : theme.fg(color, part)).join("");
 			}
 		}
-		const title = "🍧 Codex 额度";
+		const title = "Codex 额度";
 		const summaryFits = framed && sections.summary !== null
 			&& visibleWidth(title) + 2 + visibleWidth(sections.summary) <= contentWidth;
 		const header = theme.fg("accent", title) + (summaryFits
@@ -212,69 +212,75 @@ export class QuotaPanel {
 		const blocks: string[][] = [];
 		if (!summaryFits && sections.summary) blocks.push(group([theme.fg("dim", sections.summary)], contentWidth));
 		if (sections.status.length) blocks.push(group(sections.status.map((line) => theme.fg(state.error || state.stale ? "warning" : "dim", line)), contentWidth));
-		if (quota.length) blocks.push(card(group([heading("订阅额度", HEADING_COLORS.quota), ...(useTubes && windows.length ? [""] : []), ...quota])));
+		// All three headings use the quota content's left edge, regardless of data length.
+		const widestQuota = quota.length ? Math.max(visibleWidth("订阅额度"), ...quota.flatMap((line) => wrapTextWithAnsi(line, detailWidth)).map(visibleWidth))
+			: Math.min(46, detailWidth);
+		const sharedIndent = Math.max(0, Math.floor((detailWidth - Math.min(detailWidth, widestQuota)) / 2));
+		const sharedWidth = Math.max(1, detailWidth - sharedIndent * 2);
+		const align = (lines: string[]) => lines.flatMap((line) => wrapTextWithAnsi(line, sharedWidth))
+			.map((line) => line ? " ".repeat(sharedIndent) + line : line);
+		const spacious = cards && rows >= 24;
+		const gap = spacious ? [""] : [];
+		// Center the entire box, not each wrapped line; every line is width-bounded.
+		const centeredBox = (lines: string[], boxWidth: number): string[] => {
+			if (!spacious || detailWidth < 12) return group(lines);
+			const width = Math.max(6, Math.min(detailWidth, boxWidth));
+			const inner = width - 4;
+			const wrapped = lines.flatMap((line) => wrapTextWithAnsi(line, inner));
+			const border = (s: string) => theme.fg("dim", s);
+			const result = [border(`╭${"─".repeat(width - 2)}╮`), ...wrapped.map((line) => border("│") + ` ${line}${" ".repeat(Math.max(0, inner - visibleWidth(line)))} ` + border("│")), border(`╰${"─".repeat(width - 2)}╯`)];
+			return result.map((line) => center(line, detailWidth));
+		};
+		if (quota.length) blocks.push(card(align([heading("订阅额度", HEADING_COLORS.quota), ...gap, ...quota, ...gap])));
 		const reset = state.resetCredits;
-		const resetColumns = Math.min(46, detailWidth);
-		const resetPair = (left: string, right: string) => pair(left, right, resetColumns);
-		const resetHeading = resetPair("🎟 " + heading("重置卡", HEADING_COLORS.cards), theme.fg("dim", sections.resetSummary));
+		const countColor = /过期缓存/.test(sections.resetSummary) ? "warning"
+			: /^可用 [1-9]\d* 张$/.test(sections.resetSummary) ? "success" : "dim";
+		const resetHeading = pair(heading("重置卡", HEADING_COLORS.cards), theme.fg(countColor, sections.resetSummary), sharedWidth);
 		const notes = "仅显示接口返回记录，不推断完整历史。";
 		const detail = sections.resets.slice();
 		const records = state.phase === "offline" || state.phase === "not_logged_in" ? undefined : reset?.snapshot?.credits;
+		let recordBoxes: string[] = [];
+		let before: string[] = detail.filter((line) => line !== notes);
+		let after: string[] = [];
 		if (records?.length) {
-			// The source section places result/error notices before two lines per record.
-			// Group only adjacent records of identical type and status, keeping original
-			// indexes and the server's ordering for the subsequent selection dialog.
+			// Keep the API order and index unchanged; every nonstandard state remains visible.
 			const start = Number(!!state.resetUse) + Number(!!reset?.error);
-			const labels = { available: "可用", used: "已使用", expired: "已过期", pending: "使用中", unknown: "状态未知" };
-			const grouped: string[] = [];
-			let previous = "";
-			for (const [index, record] of records.entries()) {
-				const key = `${record.fullReset}:${record.status}`;
-				if (key !== previous) {
-					if (grouped.length) grouped.push("");
-					grouped.push(resetPair(`${record.fullReset ? "完全重置" : "重置卡"} · ${labels[record.status]}`,
-						record.fullReset ? "7d + 5h" : ""));
-					previous = key;
-				}
+			before = detail.slice(0, start);
+			after = detail.slice(start + records.length * 2).filter((line) => line !== notes);
+			const labels = { available: "", used: "已使用", expired: "已过期", pending: "使用中", unknown: "状态未知" };
+			const texts = records.map((record, index) => {
 				const time = record.status === "used" ? record.redeemedAt : record.expiresAt;
-				const left = `#${index + 1} ${record.status === "used" ? "使用" : "到期"} ${localTime(time)}`;
-				const right = record.status !== "available" ? "" : time === null ? "有效期未知"
-					: time <= now ? "已到期，待刷新" : resetRemaining(time, now);
-				grouped.push(right ? resetPair(left, right) : left);
-			}
-			detail.splice(start, records.length * 2, ...grouped);
+				const formatted = localTime(time);
+				const date = time !== null && new Date(time).getFullYear() === new Date(now).getFullYear() ? formatted.slice(5) : formatted;
+				const flags = [!record.fullReset ? "非完全重置" : "", labels[record.status],
+					record.status === "available" && time === null ? "有效期未知" : "",
+					record.status === "available" && time !== null && time <= now ? "已到期，待刷新" : ""].filter(Boolean);
+				return `#${index + 1}  ${record.status === "used" ? "使用" : "到期"} ${date}${flags.length ? ` · ${flags.join(" · ")}` : ""}`;
+			});
+			const boxWidth = Math.min(detailWidth, Math.max(30, ...texts.map((text) => visibleWidth(text) + 4)));
+			recordBoxes = texts.flatMap((text) => centeredBox([paint(text)], boxWidth));
 		}
-		const showNote = detail.includes(notes);
-		const resets = [
-			...group([resetHeading, ...(cards ? [""] : []), ...detail.filter((line) => line !== notes).map(paint)]),
-		];
+		const resets = [...align([resetHeading]), ...gap, ...align(before.map(paint)), ...recordBoxes, ...align(after.map(paint))];
 		const freshEmpty = button.reason === "no_usable_cards" && state.phase === "ready" && !state.stale && !state.error
 			&& !reset?.stale && !reset?.error && reset?.snapshot?.availableCount === 0
 			&& reset.snapshot.credits?.length === 0 && !state.resetUse?.warning;
 		if (!button.enabled && !freshEmpty && !sections.resets.some((line) => line.trim() === button.hint)) {
-			resets.push(...group([theme.fg(button.phase === "busy" ? "dim" : "warning", button.hint)]));
+			resets.push(...align([theme.fg(button.phase === "busy" ? "dim" : "warning", button.hint)]));
 		}
-		const label = button.enabled ? "[u 重置]" : button.phase === "busy" ? "[重置中…]" : "[重置不可用]";
-		const styledButton = theme.style(truncateToWidth(label, detailWidth), button.enabled ? { fg: "accent", bold: true }
-			: button.phase === "busy" ? { fg: "warning" } : { fg: "dim" });
-		resets.push(center(styledButton, detailWidth));
-		if (showNote) resets.push(...group([theme.fg("dim", notes)]));
-		blocks.push(card(resets));
+		blocks.push(card([...resets, ...gap]));
 		const oauth = usesCodexSubscription(this.ctx);
-		const fast = this.fast.summary(this.ctx.model, oauth);
 		const metrics = this.fast.panelMetrics(this.ctx.model, oauth);
-		const columns = Math.min(36, detailWidth);
-		const fastPair = (left: string, right: string) => pair(left, right, columns);
-		const unavailable = this.fast.enabled && this.fast.capability.kind !== "supported";
+		const unavailable = this.fast.enabled && (!oauth || this.fast.capability.kind !== "supported");
+		const stateLabel = !this.fast.enabled ? "off" : !oauth ? "on · 不适用"
+			: this.fast.capability.kind === "unsupported" ? "on · 不可用" : this.fast.capability.kind === "unknown" ? "on · 能力未知" : "on";
+		const stateColor = unavailable ? "warning" : this.fast.enabled ? "success" : "error";
+		const fastHeading = pair(heading("Fast mode", HEADING_COLORS.fast), theme.fg(stateColor, stateLabel), sharedWidth);
+		const boxWidth = Math.min(34, detailWidth);
+		const metricWidth = Math.max(1, boxWidth - 4);
 		blocks.push(card([
-			...group([
-				fastPair("⚡ " + heading("Fast", HEADING_COLORS.fast), theme.fg(unavailable ? "warning" : "text", fast.switchLabel)),
-				...(cards ? [""] : []),
-				fastPair("订阅额度消耗", metrics.quota),
-				fastPair("模型速度", metrics.speed),
-				...(cards ? [""] : []),
-			]),
-			center(theme.fg("dim", "仅当前会话"), detailWidth),
+			...align([fastHeading]), ...gap,
+			...centeredBox([pair("额度消耗", metrics.quota, metricWidth), pair("模型速度", metrics.speed, metricWidth)], boxWidth),
+			...gap, center(theme.fg("dim", "仅当前会话"), detailWidth), ...gap,
 		]));
 		const content = blocks.flatMap((block, index) => index ? ["", ...block] : block);
 		const bodyHeight = height - (framed ? 6 : 1);
@@ -297,13 +303,9 @@ export class QuotaPanel {
 
 	handleInput(data: string): void {
 		if (this.finished) return;
-		if (data === "u" && !this.controller.getResetButton().enabled) {
-			this.ctx.ui.notify(this.controller.getResetButton().hint, "warning");
-			return;
-		}
-		if (data === "u" || matchesKey(data, "escape") || matchesKey(data, "return") || data === "q") {
+		if (matchesKey(data, "escape") || matchesKey(data, "return") || data === "q") {
 			this.finished = true;
-			this.done(data === "u" ? "use" : undefined);
+			this.done();
 		} else if (matchesKey(data, "up") || matchesKey(data, "down")) {
 			this.offset = Math.max(0, Math.min(this.maxOffset, this.offset + (matchesKey(data, "up") ? -1 : 1)));
 			this.tui.requestRender();

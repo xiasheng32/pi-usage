@@ -2,6 +2,18 @@
 
 [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## [1.4.0] - 2026-11-05
+
+- The Codex panel removes emoji and aligns all three card headings with the quota heading. The reset title and count are colored separately; each record appears in a centered, equal-width rounded box with its index, time and exceptional status preserved.
+- Fast mode displays green `on` / red `off` and places quota consumption and model speed in a centered rounded box, preserving reference-rate semantics, unknown states and the session-only note.
+- Adds `/reset` in place of the panel `u` shortcut. The existing fresh-data checks, card selection, separate confirmation, concurrency protection and failure cooldown remain in force; no automatic consumption or retry.
+- Preserves small-terminal layouts, scrolling, low-quota warnings and the fixed update footer without new runtime dependencies.
+
+### Verification
+
+- `npm run check`: type checking and 267 offline tests passed, covering alignment and colors, record states, narrow layouts, scrolling, `/reset` cancellation and confirmation, provider switches and failure protection.
+- `npm pack --dry-run` and `git diff --check` passed; package and lockfile versions both match `1.4.0`.
+
 ## [1.3.0] - 2026-11-05
 
 - Codex quota windows use horizontal test tubes with aligned labels, approximate fill, exact percentages and local reset dates; panel countdowns are removed. Low-quota colors, unknown and overdue reset times remain explicit; narrow or shorter-than-24-row terminals use compact bars.

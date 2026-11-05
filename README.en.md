@@ -11,8 +11,9 @@
 ## Features
 
 - **One footer entry that follows the model**: an account balance for `deepseek` and `moonshotai-cn`, quota plus reset cards for the official `openai-codex` OAuth subscription. Switching to any other provider clears the entry and stops polling that provider.
-- **`/pi-usage` detail panel**: forces a refresh and opens the panel for the active provider. DeepSeek shows total / granted / topped-up balance, Kimi shows available / voucher / cash balance, Codex shows quota windows, reset cards (`u` to consume one) and the Fast state.
+- **`/pi-usage` detail panel**: forces a refresh and opens the panel for the active provider. DeepSeek shows total / granted / topped-up balance, Kimi shows available / voucher / cash balance, Codex shows quota windows, reset cards and the Fast state.
 - **`/fast` (Codex subscription only)**: `/fast on` and `/fast off` only affect the current session; new sessions start off. Any other model just receives a warning and no state changes.
+- **`/reset` (Codex subscription only)**: refresh and select a reset card, then explicitly confirm before consumption; cancellation, offline mode and unsafe states never consume a card.
 - **Automatic refresh**: query at session start, poll every 60 seconds, and throttle to 30 seconds on agent settlement; failures use exponential backoff, requests time out after 10 seconds and 429 responses honour `Retry-After`.
 - **No hardcoded credentials**: keys and OAuth tokens are resolved from pi's model registry at request time.
 - **Display-only by default**: nothing changes tool execution or request content (`/fast` is the explicit exception and rewrites the Codex `service_tier`).
@@ -30,7 +31,7 @@
 
 Requires Node.js >=22.19 and a pi build with the extension API (full offline suite on **1.2.0**, plus dynamic-catalog and lifecycle checks on **1.4.0**). No runtime dependencies are installed; pi provides the host packages.
 
-1.3.0 introduces horizontal test-tube quota bars and groups adjacent reset cards of the same type and status, while retaining light/dark and small-terminal layouts and the existing confirmation flow. It preserves the host dynamic model catalog and refresh capability. Fast decorates host provider requests; it does not determine `/model` contents. Fast capabilities are still queried on demand and cached, not fetched unconditionally at every startup or used to show only Fast-capable models. Missing required host APIs leave the catalog untouched and only produce a Fast installation warning.
+1.4.0 aligns the Codex detail card headings, places reset records and Fast metrics in individual rounded boxes, and moves reset actions to `/reset` with card selection and confirmation. It preserves the host dynamic model catalog and refresh capability. Fast decorates host provider requests; it does not determine `/model` contents. Fast capabilities are still queried on demand and cached, not fetched unconditionally at every startup or used to show only Fast-capable models. Missing required host APIs leave the catalog untouched and only produce a Fast installation warning.
 
 ```bash
 pi install git:github.com/xiasheng32/pi-usage
@@ -57,16 +58,17 @@ pi install git:github.com/xiasheng32/pi-usage
 ## Usage
 
 - After `pi` starts, the footer shows exactly one usage entry, matching the active model.
-- `/pi-usage` forces a refresh and opens the panel: `Enter` / `Esc` (or `q`) closes it, `↑` / `↓` scroll and `Home` / `End` jump. Press `u` in the Codex panel to consume a reset card.
+- `/pi-usage` forces a refresh and opens the panel: `Enter` / `Esc` (or `q`) closes it, `↑` / `↓` scroll and `Home` / `End` jump.
+- `/reset` opens Codex card selection and confirmation after checking fresh quota and card data. Nothing is consumed before confirmation; the panel's `u` shortcut has been removed.
 - `/fast on` enables Codex Fast (priority routing, subscription quota consumed at 2.5×) and `/fast off` disables it; both apply to the current session only.
 - Without credentials the footer reads `🐳 DeepSeek 未配置` / `🌙 Kimi 未配置` or reports an expired Codex login, and the panel explains how to fix it.
 
-### Codex detail layout (1.3.0)
+### Codex detail layout (1.4.0)
 
 - Three lightweight cards for subscription quota, reset cards and Fast, with teal, purple and blue headings and just one blank row between sections.
 - Horizontal test tubes align window labels, approximate fill, exact remaining percentages and local reset dates. The reset countdown is removed from the panel; same-year dates omit the year, cross-year dates retain it, and unknown or overdue times stay explicit. Narrow or shorter-than-24-row terminals fall back to compact bars.
-- Adjacent reset cards with the same type and status are grouped while preserving original indexes, dates, expiry details and distinct states; the returned records are not treated as a complete history. A single-line reset key remains: `[u 重置]` (ready), `[重置不可用]` (disabled) or `[重置中…]` (busy). Only `u` opens the existing selection/confirmation flow; cards are never consumed automatically. Reasons and results appear separately.
-- The rounded Fast card aligns the switch, subscription quota multiplier and model speed, with a centered session-only note. Off shows ×1.0; on shows the ×2.5 subscription reference and the speed advertised by the official model catalog, falling back to the official GPT-5.6 ×1.5 reference or “未提供” when unknown. Multipliers are relative to Standard, not measured speed or actual billing; purchased credits have a different rate. See the [official guide](https://learn.chatgpt.com/docs/agent-configuration/speed). Use `/fast on` / `/fast off` to change the switch. The update footer remains fixed and every card record is scrollable.
+- Reset-card title and count are colored separately; records appear in individually centered, equal-width rounded boxes, preserving original indexes, dates and distinct states. Returned records are not treated as a complete history; errors and outcomes remain visible.
+- Fast mode shows green `on` or red `off`, with quota consumption and model speed in a centered rounded box. Off shows ×1.0; on shows the ×2.5 subscription reference and the speed advertised by the official model catalog, falling back to the official GPT-5.6 ×1.5 reference or “未提供” when unknown. Multipliers are relative to Standard, not measured speed or actual billing; purchased credits have a different rate. See the [official guide](https://learn.chatgpt.com/docs/agent-configuration/speed). Use `/fast on` / `/fast off` to change the switch. The update footer remains fixed and every card record is scrollable.
 - The panel is capped at 68 columns. Inner card borders disappear below 40 columns or 16 terminal rows, and bars shrink to the available width. Missing history, unknown counts, stale caches and request failures never masquerade as zero cards or healthy state.
 
 ### Credentials
