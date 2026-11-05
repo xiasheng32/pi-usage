@@ -770,7 +770,10 @@ function availableResets(state: QuotaState): { count: number | null; stale: bool
 	return { count: reset?.snapshot?.availableCount ?? null, stale: !!reset?.stale || state.stale };
 }
 
-export function statusLine(state: QuotaState, now: number): { text: string; color: "dim" | "accent" | "success" | "warning" | "error" } {
+type StatusColor = "dim" | "accent" | "success" | "warning" | "error";
+type StatusSegment = { text: string; color: StatusColor };
+
+export function statusLine(state: QuotaState, now: number): { text: string; color: StatusColor; segments?: StatusSegment[] } {
 	if (state.phase === "offline") return { text: "Codex 离线", color: "dim" };
 	if (state.phase === "not_logged_in") return { text: "Codex 未登录", color: "dim" };
 	if (state.phase === "auth_error") return { text: state.error?.kind === "unsupported_auth" ? "Codex 需 OAuth 登录" : "Codex 登录失效", color: "warning" };
@@ -784,14 +787,24 @@ export function statusLine(state: QuotaState, now: number): { text: string; colo
 		return { text, color: state.error ? "warning" : "dim" };
 	}
 	const marker = state.stale ? "[过期]" : state.phase === "loading" ? "[更新中]" : "";
-	const windows = snapshot.windows.map((window) => `${windowLabel(window)} ${percentage(window.remainingPercent)}% (↻${resetRemaining(window.resetAt, now)})`);
 	const restricted = snapshot.allowed === false || snapshot.limitReached === true;
 	const expired = snapshot.windows.some((window) => window.resetAt !== null && window.resetAt <= now);
 	const minimum = Math.min(...snapshot.windows.map((window) => window.remainingPercent));
-	const text = `🍧 Codex${marker} 额度：${windows.join(" ") || "暂无主额度数据"}${restricted ? " | 受限" : ""}`;
-	const color = state.stale || expired ? "warning" : state.phase === "loading" ? "accent"
-		: restricted || minimum === 0 ? "error" : minimum <= 10 ? "warning" : windows.length ? "success" : "dim";
-	return { text, color };
+	const color: StatusColor = state.stale || expired ? "warning" : state.phase === "loading" ? "accent"
+		: restricted || minimum === 0 ? "error" : minimum <= 10 ? "warning" : snapshot.windows.length ? "success" : "dim";
+	const segments: StatusSegment[] = [{ text: `🍧 Codex${marker}  `, color }];
+	for (const [index, window] of snapshot.windows.entries()) {
+		if (index) segments.push({ text: "  ·  ", color: "dim" });
+		const filled = Math.max(0, Math.min(5, Math.ceil(window.remainingPercent / 20)));
+		const bar = "▉".repeat(filled) + "░".repeat(5 - filled);
+		const quotaColor: StatusColor = window.remainingPercent <= 0 ? "error" : isLowQuota(window.remainingPercent) ? "warning" : "success";
+		segments.push({ text: `${windowLabel(window)} `, color: "dim" });
+		segments.push({ text: `${bar} ${percentage(window.remainingPercent)}%`, color: quotaColor });
+		segments.push({ text: ` ↻${resetRemaining(window.resetAt, now)}`, color: window.resetAt !== null && window.resetAt <= now ? "warning" : "dim" });
+	}
+	if (!snapshot.windows.length) segments.push({ text: "暂无主额度数据", color: "dim" });
+	if (restricted) segments.push({ text: " | 受限", color: "error" });
+	return { text: segments.map((segment) => segment.text).join(""), color, segments };
 }
 
 export function localTime(timestamp: number | null): string {

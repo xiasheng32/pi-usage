@@ -2,6 +2,12 @@
 
 [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## [1.6.0] - 2026-11-05
+
+- The Codex footer shows a five-cell bar for each quota window alongside the remaining percentage and reset countdown; positive amounts occupy at least one cell, with the percentage authoritative.
+- Window colors are independent: at or below 20% is highlighted and 0% uses the error color. Stale, restricted and refreshing states and the Fast marker are retained.
+- Verified with `npm run check` (type checking and 270 tests), `npm pack --dry-run` and `git diff --check`.
+
 ## [1.5.0] - 2026-11-05
 
 - The Codex dashboard keeps three separately rounded quota, reset and Fast section frames. Reset and Fast appear side by side on wide terminals and stack on narrow or short terminals.

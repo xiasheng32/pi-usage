@@ -103,7 +103,9 @@ export default function piUsage(pi: ExtensionAPI): void {
 		}
 		if (selection?.kind === "quota" && quota) {
 			const status = quotaStatusLine(quota.getState(), Date.now());
-			ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg(status.color, status.text + fast.suffix()));
+			const text = status.segments ? status.segments.map((part) => ctx.ui.theme.fg(part.color, part.text)).join("")
+				: ctx.ui.theme.fg(status.color, status.text);
+			ctx.ui.setStatus(STATUS_KEY, text + ctx.ui.theme.fg(status.color, fast.suffix()));
 			return;
 		}
 		// Late callbacks and /pi-usage must not resurrect the footer elsewhere.

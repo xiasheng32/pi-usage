@@ -665,6 +665,23 @@ function panelState(now: number, count = 3): QuotaState {
 	};
 }
 
+test("footer paints each window independently and preserves the Fast suffix", async (t: TestContext) => {
+	const state = panelState(Date.now(), 0);
+	state.snapshot!.windows[0]!.remainingPercent = 9;
+	state.snapshot!.windows[1]!.remainingPercent = 80;
+	t.mock.method(QuotaController.prototype, "getState", () => state);
+	const h = harness();
+	const calls: { color: string; text: string }[] = [];
+	t.mock.method(h.rawContext.ui.theme, "fg", (color: string, text: string) => { calls.push({ color, text }); return text; });
+	await start(h);
+	await h.command("fast", "on");
+	assert.match(h.status()!, /5h ▉░░░░ 9% ↻.* ·  7d ▉▉▉▉░ 80% ↻.* · Fast$/);
+	assert.ok(calls.some((call) => call.color === "warning" && call.text === "▉░░░░ 9%"));
+	assert.ok(calls.some((call) => call.color === "success" && call.text === "▉▉▉▉░ 80%"));
+	assert.ok(calls.some((call) => call.color === "dim" && call.text.startsWith(" ↻")));
+	await h.fire("session_shutdown", { reason: "quit" });
+});
+
 test("dashboard shows quota above paired reset and Fast cards with a time-only footer", (t: TestContext) => {
 	const now = Date.UTC(2026, 9, 15, 11, 6);
 	t.mock.method(Date, "now", () => now);

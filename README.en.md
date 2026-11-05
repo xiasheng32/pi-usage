@@ -24,14 +24,14 @@
 | --- | --- | --- |
 | `deepseek` | `🐳 DeepSeek 余额：¥110.00` | total, granted and topped-up balance, availability |
 | `moonshotai-cn` | `🌙 Kimi 余额：¥50.00` | available, voucher and cash balance (net when cash is negative) |
-| `openai-codex` (OAuth subscription) | `🍧 Codex 额度：…` | quota windows, reset cards, Fast tier and cost |
+| `openai-codex` (OAuth subscription) | `🍧 Codex  5h ▉░░░░ 9% ↻2h42m  ·  7d ▉░░░░ 20% ↻4d1h` | quota windows, reset cards, Fast tier and cost |
 | anything else | none | `/pi-usage` reports that the model has no usage panel |
 
 ## Install
 
 Requires Node.js >=22.19 and a pi build with the extension API (full offline suite on **1.2.0**, plus dynamic-catalog and lifecycle checks on **1.4.0**). No runtime dependencies are installed; pi provides the host packages.
 
-1.5.0 places the reset-card and Fast sections side by side when space permits, retaining all three rounded section frames and stacking them on narrow terminals. 1.4.0 placed reset records and Fast metrics in individual rounded boxes and moved reset actions to `/reset` with card selection and confirmation. It preserves the host dynamic model catalog and refresh capability. Fast decorates host provider requests; it does not determine `/model` contents. Fast capabilities are still queried on demand and cached, not fetched unconditionally at every startup or used to show only Fast-capable models. Missing required host APIs leave the catalog untouched and only produce a Fast installation warning.
+1.6.0 adds five-cell remaining-quota bars to the Codex footer, preserving remaining percentages, reset countdowns and the Fast marker, with independent low-quota colors. 1.5.0 places the reset-card and Fast sections side by side when space permits, retaining all three rounded section frames and stacking them on narrow terminals. 1.4.0 placed reset records and Fast metrics in individual rounded boxes and moved reset actions to `/reset` with card selection and confirmation. It preserves the host dynamic model catalog and refresh capability. Fast decorates host provider requests; it does not determine `/model` contents. Fast capabilities are still queried on demand and cached, not fetched unconditionally at every startup or used to show only Fast-capable models. Missing required host APIs leave the catalog untouched and only produce a Fast installation warning.
 
 ```bash
 pi install git:github.com/xiasheng32/pi-usage
@@ -57,7 +57,7 @@ pi install git:github.com/xiasheng32/pi-usage
 
 ## Usage
 
-- After `pi` starts, the footer shows exactly one usage entry, matching the active model.
+- After `pi` starts, the footer shows exactly one usage entry, matching the active model. Codex windows each show a five-cell remaining-quota bar (rounded up for an overview), a remaining percentage and a reset countdown; each window at or below 20% is highlighted, with an error color at 0%.
 - `/pi-usage` forces a refresh and opens the panel: `Enter` / `Esc` (or `q`) closes it, `↑` / `↓` scroll and `Home` / `End` jump.
 - `/reset` opens Codex card selection and confirmation after checking fresh quota and card data. Nothing is consumed before confirmation; the panel's `u` shortcut has been removed.
 - `/fast on` enables Codex Fast (priority routing, subscription quota consumed at 2.5×) and `/fast off` disables it; both apply to the current session only.
