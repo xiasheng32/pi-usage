@@ -2,9 +2,9 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-> **中文：** 一个 [pi](https://pi.dev) 扩展：按当前模型显示 DeepSeek / Kimi 账户余额或 Codex 订阅额度，并提供会话内的 `/fast` 开关。
+> **中文：** 一个 [pi](https://pi.dev) 扩展：按当前模型显示 DeepSeek / Kimi 账户余额或 Codex 订阅额度，并提供 `/pi-usage`、`/fast` 与 `/reset`。
 >
-> **English:** A [pi](https://pi.dev) extension that shows DeepSeek or Kimi account balances—or Codex subscription quota—for the active model, and adds a session-local `/fast` switch.
+> **English:** A [pi](https://pi.dev) extension that shows DeepSeek / Kimi account balances or Codex subscription quota for the active model, with `/pi-usage`, `/fast` and `/reset`.
 
 `pi-usage` merges the former `pi-kimi`, `pi-deepseek` and `pi-codex` extensions into one package: a single footer status key (`pi-usage`) and a single detail entry point (`/pi-usage`) whose content follows the provider of the current model. The three old repositories are archived; their history and documentation remain on GitHub.
 
@@ -31,7 +31,7 @@
 
 Requires Node.js >=22.19 and a pi build with the extension API (full offline suite on **1.2.0**, plus dynamic-catalog and lifecycle checks on **1.4.0**). No runtime dependencies are installed; pi provides the host packages.
 
-1.6.0 adds five-cell remaining-quota bars to the Codex footer, preserving remaining percentages, reset countdowns and the Fast marker, with independent low-quota colors. 1.5.0 places the reset-card and Fast sections side by side when space permits, retaining all three rounded section frames and stacking them on narrow terminals. 1.4.0 placed reset records and Fast metrics in individual rounded boxes and moved reset actions to `/reset` with card selection and confirmation. It preserves the host dynamic model catalog and refresh capability. Fast decorates host provider requests; it does not determine `/model` contents. Fast capabilities are still queried on demand and cached, not fetched unconditionally at every startup or used to show only Fast-capable models. Missing required host APIs leave the catalog untouched and only produce a Fast installation warning.
+1.6.1 aligns the repository description with the bilingual intros; 1.6.0 adds five-cell remaining-quota bars to the Codex footer, preserving remaining percentages, reset countdowns and the Fast marker, with independent low-quota colors. 1.5.0 places the reset-card and Fast sections side by side when space permits, retaining all three rounded section frames and stacking them on narrow terminals. 1.4.0 placed reset records and Fast metrics in individual rounded boxes and moved reset actions to `/reset` with card selection and confirmation. It preserves the host dynamic model catalog and refresh capability. Fast decorates host provider requests; it does not determine `/model` contents. Fast capabilities are still queried on demand and cached, not fetched unconditionally at every startup or used to show only Fast-capable models. Missing required host APIs leave the catalog untouched and only produce a Fast installation warning.
 
 ```bash
 pi install git:github.com/xiasheng32/pi-usage

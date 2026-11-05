@@ -2,6 +2,12 @@
 
 [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## [1.6.1] - 2026-11-05
+
+- 统一简介文案：GitHub 仓库描述、`package.json` 的 description 与中英文 README 的简介段改为同一句，完整列出 `/pi-usage`、`/fast` 与 `/reset`；中英文之间改用 ` | ` 分隔，与 pi-opencode、pi-tool-fold 一致。
+- 仅元数据与文档变更，运行时代码、行为与测试未改动。
+- 验证：`npm run check`（类型检查与 270 项测试）、`npm pack --dry-run`、`git diff --check`，以及 GitHub 描述与 `package.json` description 逐字符比对。
+
 ## [1.6.0] - 2026-11-05
 
 - Codex 页脚为每个额度窗口增加五格进度条，并列显示剩余百分比和重置倒计时；正数至少显示一格，以百分比为准。

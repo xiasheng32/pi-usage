@@ -2,9 +2,9 @@
 
 [简体中文](README.md) | [English](README.en.md)
 
-> **中文：** 一个 [pi](https://pi.dev) 扩展：按当前模型显示 DeepSeek / Kimi 账户余额或 Codex 订阅额度，并提供会话内的 `/fast` 开关。
+> **中文：** 一个 [pi](https://pi.dev) 扩展：按当前模型显示 DeepSeek / Kimi 账户余额或 Codex 订阅额度，并提供 `/pi-usage`、`/fast` 与 `/reset`。
 >
-> **English:** A [pi](https://pi.dev) extension that shows DeepSeek or Kimi account balances—or Codex subscription quota—for the active model, and adds a session-local `/fast` switch.
+> **English:** A [pi](https://pi.dev) extension that shows DeepSeek / Kimi account balances or Codex subscription quota for the active model, with `/pi-usage`, `/fast` and `/reset`.
 
 `pi-usage` 合并了原 `pi-kimi`、`pi-deepseek` 与 `pi-codex` 三个扩展：只保留**一个**页脚状态键 `pi-usage`、**一个**详情面板入口 `/pi-usage`，面板内容由当前模型所属的 provider 决定。三个旧仓库已归档，历史与文档仍可在 GitHub 查看。
 
@@ -31,7 +31,7 @@
 
 需要 Node.js >=22.19 与提供扩展 API 的 pi（完整离线测试使用 **1.2.0**，动态目录与生命周期另验证 **1.4.0**）。运行时无需额外依赖，宿主包由 pi 提供。
 
-1.6.0 将 Codex 页脚改为五格剩余额度进度条，保留剩余百分比、重置倒计时和 Fast 标记；各窗口低额度独立着色。1.5.0 将 Codex 详情面板的重置卡与 Fast 区域左右排列，保留三个独立圆角区块；窄屏自动回退上下排列。1.4.0 以独立圆角框展示重置卡与 Fast 倍率；重置操作改为 `/reset`，仍需选卡并确认。继续保留宿主动态模型目录和刷新能力；Fast 只装饰宿主 provider 的请求，不决定 `/model` 的内容。Fast 能力仍按需查询并缓存，不会每次启动强制联网或只显示支持 Fast 的模型。宿主缺少必要 API 时保留模型目录，仅提示 Fast 无法安装。
+1.6.1 同步仓库描述与中英文简介，不改运行时代码；1.6.0 将 Codex 页脚改为五格剩余额度进度条，保留剩余百分比、重置倒计时和 Fast 标记；各窗口低额度独立着色。1.5.0 将 Codex 详情面板的重置卡与 Fast 区域左右排列，保留三个独立圆角区块；窄屏自动回退上下排列。1.4.0 以独立圆角框展示重置卡与 Fast 倍率；重置操作改为 `/reset`，仍需选卡并确认。继续保留宿主动态模型目录和刷新能力；Fast 只装饰宿主 provider 的请求，不决定 `/model` 的内容。Fast 能力仍按需查询并缓存，不会每次启动强制联网或只显示支持 Fast 的模型。宿主缺少必要 API 时保留模型目录，仅提示 Fast 无法安装。
 
 ```bash
 pi install git:github.com/xiasheng32/pi-usage

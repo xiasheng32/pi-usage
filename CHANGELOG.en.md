@@ -2,6 +2,12 @@
 
 [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## [1.6.1] - 2026-11-05
+
+- Unify the project blurb: the GitHub repository description, the `package.json` description and the bilingual README intros now share one sentence that lists `/pi-usage`, `/fast` and `/reset`; Chinese and English are separated by ` | ` to match pi-opencode and pi-tool-fold.
+- Metadata and documentation only; runtime code, behaviour and tests are unchanged.
+- Verified with `npm run check` (type checking and 270 tests), `npm pack --dry-run`, `git diff --check`, plus a character-by-character comparison between the GitHub and `package.json` descriptions.
+
 ## [1.6.0] - 2026-11-05
 
 - The Codex footer shows a five-cell bar for each quota window alongside the remaining percentage and reset countdown; positive amounts occupy at least one cell, with the percentage authoritative.
