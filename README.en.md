@@ -61,12 +61,12 @@ pi install git:github.com/xiasheng32/pi-usage
 - `/fast on` enables Codex Fast (priority routing, subscription quota consumed at 2.5×) and `/fast off` disables it; both apply to the current session only.
 - Without credentials the footer reads `🐳 DeepSeek 未配置` / `🌙 Kimi 未配置` or reports an expired Codex login, and the panel explains how to fix it.
 
-### Codex detail layout (1.2.0)
+### Codex detail layout (1.2.1)
 
 - Three lightweight cards for subscription quota, reset cards and Fast, with teal, purple and blue headings and just one blank row between sections.
 - Quota content is centered as a group while labels, bars and reset countdowns stay aligned. At normal width both bars use 36 columns; each window shows its remaining percentage above a countdown and local date. Same-year dates omit the year; cross-year dates retain it.
 - A single-line reset key remains visible: `[u 重置]` (ready), `[重置不可用]` (disabled) or `[重置中…]` (busy). Only `u` opens the existing selection/confirmation flow; cards are never consumed automatically. Reasons and results appear separately.
-- Fast remains read-only in a two-line summary; use `/fast on` / `/fast off` to change it. The update time stays in a fixed footer and every card record remains scrollable.
+- The rounded Fast card aligns the switch, subscription quota multiplier and model speed, with a centered session-only note. Off shows ×1.0; on shows the ×2.5 subscription reference and the speed advertised by the official model catalog, falling back to the official GPT-5.6 ×1.5 reference or “未提供” when unknown. Multipliers are relative to Standard, not measured speed or actual billing; purchased credits have a different rate. See the [official guide](https://learn.chatgpt.com/docs/agent-configuration/speed). Use `/fast on` / `/fast off` to change the switch. The update footer remains fixed and every card record is scrollable.
 - The panel is capped at 68 columns. Inner card borders disappear below 40 columns or 16 terminal rows, and bars shrink to the available width. Missing history, unknown counts, stale caches and request failures never masquerade as zero cards or healthy state.
 
 ### Credentials

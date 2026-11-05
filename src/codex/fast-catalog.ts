@@ -23,9 +23,12 @@ export function parseFastCatalog(payload: unknown): ReadonlyMap<string, FastCapa
 		const legacy = item.additional_speed_tiers;
 		if (tiers !== undefined && (!Array.isArray(tiers) || tiers.some((tier) => typeof catalogRecord(tier)?.id !== "string"))) throw new Error("Invalid tiers");
 		if (legacy !== undefined && (!Array.isArray(legacy) || legacy.some((tier) => typeof tier !== "string"))) throw new Error("Invalid legacy tiers");
+		const priority = (tiers as Record<string, unknown>[] | undefined)?.find((tier) => tier.id === "priority");
+		const match = typeof priority?.description === "string" ? /^(\d+(?:\.\d+)?)x speed(?:,|$)/i.exec(priority.description) : null;
+		const speed = match ? Number(match[1]) : undefined;
 		models.set(item.slug, tiers === undefined && legacy === undefined ? { kind: "unknown", reason: "模型目录未提供 Fast 能力" }
-			: { kind: (tiers as { id: string }[] | undefined)?.some((tier) => tier.id === "priority")
-				|| (legacy as string[] | undefined)?.includes("fast") ? "supported" : "unsupported" });
+			: { kind: priority || (legacy as string[] | undefined)?.includes("fast") ? "supported" : "unsupported",
+				...(speed !== undefined && Number.isFinite(speed) && speed > 1 && speed <= 100 ? { speedMultiplier: speed } : {}) });
 	}
 	return models;
 }

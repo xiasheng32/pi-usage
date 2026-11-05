@@ -8,7 +8,7 @@ export interface FastModel {
 	baseUrl: string;
 }
 
-export type FastCapability = { kind: "supported" | "unsupported" | "unknown"; reason?: string };
+export type FastCapability = { kind: "supported" | "unsupported" | "unknown"; reason?: string; speedMultiplier?: number };
 
 export type FastPhase = "idle" | "requested" | "fast" | "standard" | "unknown";
 
@@ -112,6 +112,17 @@ export class FastModeController {
 		if (!this.enabled) return "";
 		return this.capability.kind === "supported" ? " · Fast"
 			: this.capability.kind === "unsupported" ? " · Fast不可用" : " · Fast能力未知";
+	}
+
+	/** Display reference rates for the selected route, not measured speed or billed usage. */
+	panelMetrics(model: FastModel | undefined, oauth: boolean): { quota: string; speed: string } {
+		if (!isCodexSubscription(model, oauth)) return { quota: "—", speed: "—" };
+		if (!this.enabled) return { quota: "×1.0", speed: "×1.0" };
+		if (this.capability.kind !== "supported") return { quota: "—", speed: "—" };
+		const advertised = this.capability.speedMultiplier;
+		const speed = typeof advertised === "number" && Number.isFinite(advertised) && advertised > 1 && advertised <= 100
+			? advertised : /^gpt-5\.6(?:-(?:sol|terra|luna))?$/.test(model!.id) ? 1.5 : undefined;
+		return { quota: "×2.5", speed: speed === undefined ? "未提供" : `×${Number.isInteger(speed) ? speed.toFixed(1) : speed}` };
 	}
 
 	/** Compact presentation; a preference never claims a confirmed server tier. */

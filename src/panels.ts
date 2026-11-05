@@ -199,10 +199,21 @@ export class QuotaPanel {
 			: button.phase === "busy" ? { fg: "warning" } : { fg: "dim" });
 		resets.push(center(styledButton, detailWidth));
 		blocks.push(card(resets));
-		const fast = this.fast.summary(this.ctx.model, usesCodexSubscription(this.ctx));
+		const oauth = usesCodexSubscription(this.ctx);
+		const fast = this.fast.summary(this.ctx.model, oauth);
+		const metrics = this.fast.panelMetrics(this.ctx.model, oauth);
+		const columns = Math.min(36, detailWidth);
+		const pair = (left: string, right: string) => left + " ".repeat(Math.max(2, columns - visibleWidth(left) - visibleWidth(right))) + right;
+		const unavailable = this.fast.enabled && this.fast.capability.kind !== "supported";
 		blocks.push(card([
-			...group([heading("Fast", HEADING_COLORS.fast) + theme.fg(fast.warning ? "warning" : "text", `  ${fast.switchLabel} · ${fast.costLabel}`)]),
-			...group([theme.fg(fast.warning ? "warning" : "dim", fast.responseLabel) + theme.fg("dim", " · 仅本会话")]),
+			...group([
+				pair("⚡ " + heading("Fast", HEADING_COLORS.fast), theme.fg(unavailable ? "warning" : "text", fast.switchLabel)),
+				...(cards ? [""] : []),
+				pair("订阅额度消耗", metrics.quota),
+				pair("模型速度", metrics.speed),
+				...(cards ? [""] : []),
+			]),
+			center(theme.fg("dim", "仅当前会话"), detailWidth),
 		]));
 		const content = blocks.flatMap((block, index) => index ? ["", ...block] : block);
 		const bodyHeight = height - (framed ? 6 : 1);

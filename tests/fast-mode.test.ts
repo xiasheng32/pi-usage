@@ -137,6 +137,26 @@ test("malformed and unrelated custom entries cannot enable Fast", () => {
 	assert.equal(restoreFastMode([entry(true), ...invalid], "session-A"), true);
 });
 
+test("panel reference rates distinguish standard, advertised, known and unknown speeds", () => {
+	const fast = new FastModeController();
+	assert.deepEqual(fast.panelMetrics(model, true), { quota: "×1.0", speed: "×1.0" });
+	assert.deepEqual(fast.panelMetrics(model, false), { quota: "—", speed: "—" });
+	fast.setEnabled(true);
+	assert.deepEqual(fast.panelMetrics(model, true), { quota: "—", speed: "—" });
+	fast.setCapability({ kind: "unsupported" });
+	assert.deepEqual(fast.panelMetrics(model, true), { quota: "—", speed: "—" });
+	fast.setCapability({ kind: "supported" });
+	assert.deepEqual(fast.panelMetrics(model, true), { quota: "×2.5", speed: "未提供" });
+	assert.deepEqual(fast.panelMetrics({ ...model, id: "gpt-5.6-sol" }, true), { quota: "×2.5", speed: "×1.5" });
+	assert.equal(fast.panelMetrics({ ...model, id: "gpt-5.6-future" }, true).speed, "未提供");
+	fast.setCapability({ kind: "supported", speedMultiplier: 2 });
+	assert.deepEqual(fast.panelMetrics(model, true), { quota: "×2.5", speed: "×2.0" });
+	fast.setCapability({ kind: "supported", speedMultiplier: 1.25 });
+	assert.equal(fast.panelMetrics(model, true).speed, "×1.25");
+	fast.setCapability({ kind: "supported", speedMultiplier: Infinity });
+	assert.equal(fast.panelMetrics(model, true).speed, "未提供");
+});
+
 test("Fast starts off and explicitly chooses the default request tier", () => {
 	const fast = new FastModeController();
 	const payload = request();

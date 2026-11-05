@@ -48,6 +48,21 @@ test("directory distinguishes supported, legacy, unsupported, absent metadata an
 	assert.equal((await f.read({ ...model, id: "not-in-directory" })).kind, "unknown");
 });
 
+test("only bounded Fast catalog speed descriptions are retained", () => {
+	const parsed = parseFastCatalog({ models: [
+		{ slug: "known", service_tiers: [{ id: "priority", description: "2x speed, increased usage" }] },
+		{ slug: "decimal", service_tiers: [{ id: "priority", description: "1.5x speed" }] },
+		{ slug: "bad", service_tiers: [{ id: "priority", description: "999x speed, \u001b[31m" }] },
+		{ slug: "ambiguous", service_tiers: [{ id: "priority", description: "up to 2x speed" }] },
+		{ slug: "other-tier", service_tiers: [{ id: "ultrafast", description: "8x speed" }] },
+	] });
+	assert.deepEqual(parsed.get("known"), { kind: "supported", speedMultiplier: 2 });
+	assert.deepEqual(parsed.get("decimal"), { kind: "supported", speedMultiplier: 1.5 });
+	assert.deepEqual(parsed.get("bad"), { kind: "supported" });
+	assert.deepEqual(parsed.get("ambiguous"), { kind: "supported" });
+	assert.deepEqual(parsed.get("other-tier"), { kind: "unsupported" });
+});
+
 test("official OAuth only, with offline and unrelated models never even resolving auth", async () => {
 	const f = fixture();
 	for (const candidate of [{ ...model, provider: "openai" }, { ...model, api: "openai-responses" },

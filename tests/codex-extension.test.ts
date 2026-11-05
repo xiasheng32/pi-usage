@@ -426,7 +426,7 @@ test("provider request and stream events update Fast confirmation, fallback and 
 	assert.deepEqual(await h.fire("before_provider_request", { payload: payload() }), { ...payload(), service_tier: "default" });
 });
 
-test("the supported Fast footer remains enabled while the panel reports a standard server response", async () => {
+test("the Fast card shows reference rates without claiming the server response tier", async () => {
 	const h = harness();
 	await start(h);
 	await h.command("fast", "on");
@@ -435,9 +435,10 @@ test("the supported Fast footer remains enabled while the panel reports a standa
 	assert.match(h.status()!, / · Fast$/);
 	await h.command("pi-usage");
 	const detail = h.panels.at(-1)!.render(68).join("\n");
-	assert.match(detail, /已开启 · ×2\.5/);
-	assert.match(detail, /服务端标准 · 仅本会话/);
-	assert.doesNotMatch(detail, /模型能力|请求档位|最近服务端档位/);
+	assert.match(detail, /Fast\s+已开启/);
+	assert.match(detail, /订阅额度消耗\s+×2\.5/);
+	assert.match(detail, /仅当前会话/);
+	assert.doesNotMatch(detail, /服务端标准|模型能力|请求档位|最近服务端档位/);
 	assert.ok(!detail.includes("Fast 未生效"));
 });
 
@@ -561,9 +562,11 @@ test("the detail panel is read-only for Fast, with only u retaining the reset ac
 	await h.command("pi-usage");
 	const output = h.panels[0]!.render(68).join("\n");
 	assert.match(output, /🍧 Codex 额度/);
-	assert.match(output, /已开启 · ×2\.5/);
-	assert.match(output, /等待响应 · 仅本会话/);
-	assert.doesNotMatch(output, /\/fast on|不会自动消耗|不会自动消费|f 切换/);
+	assert.match(output, /Fast\s+已开启/);
+	assert.match(output, /订阅额度消耗\s+×2\.5/);
+	assert.match(output, /模型速度\s+未提供/);
+	assert.match(output, /仅当前会话/);
+	assert.doesNotMatch(output, /最近响应|等待响应|\/fast on|不会自动消耗|不会自动消费|f 切换/);
 	const controller = new QuotaController({ offline: true, resolveAuth: async () => { throw new Error("Unexpected credential lookup"); } });
 	const fast = new FastModeController();
 	fast.setCapability({ kind: "supported" });
@@ -608,7 +611,7 @@ test("panel scrolling and compact layouts fit all terminal sizes with a fixed up
 				panel.handleInput("\x1b[F");
 				const end = panel.render(width);
 				assert.equal(end.find((line) => line.includes("更新于")), footer);
-				if (rows >= 4) assert.match(end.join("\n"), /仅本会话/);
+				if (rows >= 4) assert.match(end.join("\n"), /仅当前会话/);
 			}
 		}
 	}
@@ -622,7 +625,7 @@ test("panel scrolling and compact layouts fit all terminal sizes with a fixed up
 	controller.dispose();
 });
 
-test("short terminals scroll from reset details to the two-line Fast summary", () => {
+test("short terminals scroll from reset details to the Fast reference rates", () => {
 	const h = harness();
 	h.terminal.rows = 8;
 	const fast = new FastModeController();
@@ -630,15 +633,16 @@ test("short terminals scroll from reset details to the two-line Fast summary", (
 	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, fast);
 	panel.render(40);
 	panel.handleInput("\x1b[F");
-	assert.match(panel.render(40).join("\n"), /已关闭 · 标准/);
-	fast.setCapability({ kind: "supported" });
+	assert.match(panel.render(40).join("\n"), /订阅额度消耗\s+×1\.0/);
+	fast.setCapability({ kind: "supported", speedMultiplier: 2 });
 	fast.setEnabled(true);
 	fast.transform(payload(), codex, true);
 	fast.observe(streamEvent("fast"));
 	let output = panel.render(40).join("\n");
-	assert.match(output, /已开启 · ×2\.5/);
-	assert.match(output, /服务端 Fast · 仅本会话/);
-	assert.doesNotMatch(output, /模型能力|请求档位|\/fast on|f 切换/);
+	assert.match(output, /订阅额度消耗\s+×2\.5/);
+	assert.match(output, /模型速度\s+×2\.0/);
+	assert.match(output, /仅当前会话/);
+	assert.doesNotMatch(output, /服务端 Fast|模型能力|请求档位|\/fast on|f 切换/);
 	panel.handleInput("\x1b[H");
 	output = panel.render(40).join("\n");
 	assert.match(output, /离线模式/);
@@ -677,7 +681,7 @@ test("dashboard orders quota, reset cards with their button, Fast, and a time-on
 	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, fast);
 	const lines = panel.render(68);
 	const text = lines.join("\n");
-	const positions = ["订阅额度", "重置卡", "#1", "#3", "[u 重置]", "Fast", "已开启 · ×2.5", "响应待确认 · 仅本会话", "更新于"].map((part) => text.indexOf(part));
+	const positions = ["订阅额度", "重置卡", "#1", "#3", "[u 重置]", "Fast", "已开启", "订阅额度消耗", "模型速度", "仅当前会话", "更新于"].map((part) => text.indexOf(part));
 	assert.ok(positions.every((position, index) => position >= 0 && (!index || position > positions[index - 1]!)), text);
 	assert.match(lines[1]!, /🍧 Codex 额度.*PLUS.*可用/);
 	assert.match(text, /剩余 75%/);
@@ -686,9 +690,11 @@ test("dashboard orders quota, reset cards with their button, Fast, and a time-on
 	assert.equal(lines.filter((line) => line.includes("更新于")).length, 1);
 	assert.match(lines.at(-2)!, /更新于 \d{2}:\d{2} · 本机时区/);
 	assert.doesNotMatch(text, /已用|更新：|选卡后确认|不会自动消费|按 u 选卡|\/fast on|当前模型：|请求档位：|Enter\/Esc/);
-	const fastStart = lines.findIndex((line) => line.includes("Fast  "));
-	assert.match(lines[fastStart]!, /已开启 · ×2\.5/);
-	assert.match(lines[fastStart + 1]!, /响应待确认 · 仅本会话/);
+	const fastStart = lines.findIndex((line) => line.includes("Fast"));
+	assert.match(lines[fastStart]!, /已开启/);
+	assert.match(lines[fastStart + 2]!, /订阅额度消耗\s+×2\.5/);
+	assert.match(lines[fastStart + 3]!, /模型速度\s+未提供/);
+	assert.match(lines[fastStart + 5]!, /仅当前会话/);
 	controller.dispose();
 });
 
@@ -711,7 +717,7 @@ test("zero-card dashboard centers three compact cards, aligned 36-column bars an
 		assert.ok(line.startsWith("│ │ ") && line.endsWith(" │ │"), line);
 		return line.slice(4, -4);
 	};
-	for (const heading of ["订阅额度", "重置卡 · 可用 0 张", "暂无卡片记录", "[重置不可用]", "Fast  已关闭 · 标准", "等待响应 · 仅本会话"]) {
+	for (const heading of ["订阅额度", "重置卡 · 可用 0 张", "暂无卡片记录", "[重置不可用]", "仅当前会话"]) {
 		const line = lines.find((entry) => entry.includes(heading));
 		assert.ok(line, `missing ${heading}`);
 		const inner = innerOf(line!);
@@ -734,6 +740,33 @@ test("zero-card dashboard centers three compact cards, aligned 36-column bars an
 	assert.equal(text.split("[重置不可用]").length - 1, 1);
 	assert.doesNotMatch(text, /┌|┐|└|┘|已用|不推断|结果未决/);
 	assert.ok(lines.length <= 32);
+	controller.dispose();
+});
+
+test("Fast card aligns reference rates, centers session note and keeps rounded borders", (t: TestContext) => {
+	const h = harness();
+	h.terminal.rows = 64;
+	const controller = new QuotaController({ offline: true, resolveAuth: async () => { throw new Error("Unexpected credentials"); } });
+	t.mock.method(controller, "getState", () => panelState(Date.now(), 0));
+	const fast = new FastModeController();
+	fast.setCapability({ kind: "supported", speedMultiplier: 2 });
+	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, fast);
+	for (const enabled of [false, true]) {
+		fast.setEnabled(enabled);
+		const lines = panel.render(68);
+		const title = lines.findIndex((line) => line.includes("⚡ Fast"));
+		const quota = lines.find((line) => line.includes("订阅额度消耗"))!;
+		const speed = lines.find((line) => line.includes("模型速度"))!;
+		const note = lines.find((line) => line.includes("仅当前会话"))!;
+		assert.match(lines[title - 1]!, /╭─+╮/);
+		assert.match(lines[title]!, enabled ? /已开启/ : /已关闭/);
+		assert.match(quota, enabled ? /×2\.5/ : /×1\.0/);
+		assert.match(speed, enabled ? /×2\.0/ : /×1\.0/);
+		assert.equal(visibleWidth(quota.slice(0, quota.indexOf("×"))), visibleWidth(speed.slice(0, speed.indexOf("×"))));
+		const inner = note.slice(4, -4);
+		assert.equal(inner.length - inner.trimStart().length, Math.floor((60 - visibleWidth("仅当前会话")) / 2));
+		assert.doesNotMatch(lines.join("\n"), /最近响应|服务端 Fast|服务端标准/);
+	}
 	controller.dispose();
 });
 
@@ -815,7 +848,8 @@ test("wrapped reset warnings retain their text and offline panels never expose c
 	for (const phase of ["offline", "not_logged_in"] as const) {
 		state.phase = phase;
 		const output = panel.render(68).join("\n");
-		assert.doesNotMatch(output, /PLUS|订阅额度|剩余|#1|重置结果不确定/);
+		assert.doesNotMatch(output, /PLUS|剩余|#1|重置结果不确定/);
+		assert.doesNotMatch(output, /订阅额度(?!消耗)/);
 		assert.match(output, phase === "offline" ? /离线模式/ : /尚未登录/);
 	}
 	controller.dispose();
@@ -869,7 +903,7 @@ test("reset results and disabled or busy hints stay inside the card section with
 		t.mock.method(controller, "getResetButton", () => ({ enabled: false, phase, hint }));
 		const text = panel.render(68).join("\n");
 		const cardStart = text.indexOf("重置卡");
-		const fastStart = text.indexOf("Fast  ");
+		const fastStart = text.indexOf("Fast");
 		const label = phase === "busy" ? "[重置中…]" : "[重置不可用]";
 		for (const message of [state.resetUse.message, hint, label]) {
 			assert.ok(text.indexOf(message) > cardStart && text.indexOf(message) < fastStart, message);
@@ -902,7 +936,7 @@ test("all cards remain scrollable while the update footer is fixed and u works o
 	}
 	for (let i = 1; i <= 30; i++) assert.ok(output.includes(`#${i} `), `missing card ${i}`);
 	panel.handleInput("\x1b[F");
-	assert.match(panel.render(68).join("\n"), /仅本会话/);
+	assert.match(panel.render(68).join("\n"), /仅当前会话/);
 	panel.handleInput("\x1b[H");
 	assert.doesNotMatch(panel.render(68).join("\n"), /\[u 重置\]/);
 	panel.handleInput("u");

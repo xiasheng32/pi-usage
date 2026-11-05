@@ -2,6 +2,17 @@
 
 [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## [1.2.1] - 2026-11-05
+
+- The rounded Codex Fast card aligns the session switch, subscription quota consumption and model speed, with a centered session-only note; the recent response tier is removed from the card.
+- Off displays ×1.0 for both values. When supported and enabled, subscription quota shows a ×2.5 reference; speed uses an explicit official model-catalog multiplier, falls back to the official GPT-5.6 ×1.5 reference, or shows “未提供” when unknown. These are not measured speed or actual billing; purchased credits have different rates.
+- Preserves narrow-screen handling, scrolling and Fast request semantics without new runtime dependencies.
+
+### Verification
+
+- `npm run check`: type checking and 261 offline tests passed, covering reference rates, model catalogs, rounded-card alignment, centered session notes, narrow layouts, scrolling and request behavior.
+- `npm pack --dry-run` and `git diff --check` passed; package and lockfile versions both match `1.2.1`.
+
 ## [1.2.0] - 2026-10-30
 
 - Redesigned the Codex detail panel as three compact centered cards, using teal, purple and blue for subscription quota, reset cards and Fast, with one blank row between sections.
