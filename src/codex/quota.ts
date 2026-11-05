@@ -734,7 +734,7 @@ export function windowLabel(window: QuotaWindow): string {
 	return label;
 }
 
-function percentage(value: number): string {
+export function percentage(value: number): string {
 	return value > 0 && value < 1 ? "<1" : `${Math.round(value * 10) / 10}`;
 }
 
@@ -794,7 +794,7 @@ export function statusLine(state: QuotaState, now: number): { text: string; colo
 	return { text, color };
 }
 
-function localTime(timestamp: number | null): string {
+export function localTime(timestamp: number | null): string {
 	if (timestamp === null) return "未知";
 	const date = new Date(timestamp);
 	const pad = (value: number) => String(value).padStart(2, "0");

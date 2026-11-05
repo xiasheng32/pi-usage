@@ -2,6 +2,17 @@
 
 [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## [1.3.0] - 2026-11-05
+
+- Codex quota windows use horizontal test tubes with aligned labels, approximate fill, exact percentages and local reset dates; panel countdowns are removed. Low-quota colors, unknown and overdue reset times remain explicit; narrow or shorter-than-24-row terminals use compact bars.
+- Reset cards use a left/right heading and group adjacent records with the same type and status while preserving their original indexes, states, dates and expiry information. The action and incomplete-history notice are centered; errors, expired and unknown states remain explicit.
+- Preserves `u` selection and confirmation, the fixed update footer, scrolling, the Fast card and existing non-TUI details, with no new runtime dependencies.
+
+### Verification
+
+- `npm run check`: type checking and 263 offline tests passed, covering tube alignment, date boundaries, low quota, grouped mixed states, narrow terminals, scrolling, reset confirmation and themes.
+- `npm pack --dry-run` and `git diff --check` passed; package and lockfile versions both match `1.3.0`.
+
 ## [1.2.1] - 2026-11-05
 
 - The rounded Codex Fast card aligns the session switch, subscription quota consumption and model speed, with a centered session-only note; the recent response tier is removed from the card.

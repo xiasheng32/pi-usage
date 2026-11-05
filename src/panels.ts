@@ -10,7 +10,7 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { TUI } from "@earendil-works/pi-tui";
 import { matchesKey, rgbColor, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { BalanceRuntime } from "./balance/core.ts";
-import { detailSections, isLowQuota, quotaBar, statusLine, windowLabel } from "./codex/quota.ts";
+import { detailSections, isLowQuota, localTime, percentage, quotaBar, resetRemaining, statusLine, windowLabel } from "./codex/quota.ts";
 import type { QuotaController } from "./codex/quota.ts";
 import type { FastModeController } from "./codex/fast-mode.ts";
 import { usesCodexSubscription } from "./registry.ts";
@@ -140,6 +140,7 @@ export class QuotaPanel {
 		};
 		const heading = (title: string, colors: typeof HEADING_COLORS.quota) => theme.style(title,
 			{ fg: theme.appearance === "light" ? colors.light : colors.dark, bold: true });
+		const pair = (left: string, right: string, columns: number) => left + " ".repeat(Math.max(2, columns - visibleWidth(left) - visibleWidth(right))) + right;
 		const paint = (line: string) => {
 			if ((state.resetUse?.warning && line === state.resetUse.message)
 				|| /过期缓存|查询失败|查询限流|查询超时|格式异常|已到期|结果不确定|未完成|被拒绝/.test(line)) return theme.fg("warning", line);
@@ -156,23 +157,52 @@ export class QuotaPanel {
 		};
 		const windows = sections.quota.length ? state.snapshot?.windows ?? [] : [];
 		const labelWidth = Math.max(0, ...windows.map((window) => visibleWidth(windowLabel(window))));
-		const quota = sections.quota.map((line, index) => {
-			const window = windows[Math.floor(index / 2)];
-			if (!window) return paint(line);
-			if (index % 2) return theme.fg("dim", " ".repeat(labelWidth) + line);
-			const label = windowLabel(window);
-			return label + " ".repeat(labelWidth - visibleWidth(label)) + line.slice(label.length);
+		const percentWidth = Math.max(0, ...windows.map((window) => visibleWidth(`${percentage(window.remainingPercent)}%`)));
+		const dates = windows.map((window) => {
+			if (window.resetAt === null) return "重置时间未知";
+			const date = localTime(window.resetAt);
+			const formatted = new Date(window.resetAt).getFullYear() === new Date(now).getFullYear() ? date.slice(5) : date;
+			return window.resetAt <= now ? `待刷新 ${formatted}` : formatted;
 		});
-		const overhead = Math.max(0, ...quota.filter((_line, index) => windows.length && index % 2 === 0).map((line) => visibleWidth(line) - 36));
-		const barWidth = Math.max(1, Math.min(36, detailWidth - overhead));
+		const dateWidth = Math.max(0, ...dates.map(visibleWidth));
+		const tubeWidth = Math.min(20, detailWidth - labelWidth - percentWidth - dateWidth - 8);
+		const useTubes = tubeWidth >= 8 && rows >= 24;
 		const lowQuotaColor = theme.appearance === "light" ? LOW_QUOTA_LIGHT : LOW_QUOTA_DARK;
-		for (let index = 0; index < windows.length; index++) {
-			const window = windows[index]!;
-			const line = quota[index * 2]!.replace(/[█░]+/, quotaBar(window.remainingPercent, barWidth, true));
-			// Color the original window independently, never its rounded text.
-			const color = statusLine({ ...state, snapshot: { ...state.snapshot!, windows: [window] } }, now).color;
-			quota[index * 2] = line.split(/([█░]+)/).map((part) => isLowQuota(window.remainingPercent) && /[█░]/.test(part)
-				? theme.style(part, { fg: lowQuotaColor }) : theme.fg(color, part)).join("");
+		let quota: string[];
+		if (windows.length && useTubes) {
+			quota = windows.flatMap((window, index) => {
+				const label = windowLabel(window);
+				const percent = `${percentage(window.remainingPercent)}%`;
+				const bar = quotaBar(window.remainingPercent, tubeWidth, true);
+				const color = statusLine({ ...state, snapshot: { ...state.snapshot!, windows: [window] } }, now).color;
+				const painted = bar.split(/([█░]+)/).map((part) => isLowQuota(window.remainingPercent) && /[█░]/.test(part)
+					? theme.style(part, { fg: lowQuotaColor }) : theme.fg(color, part)).join("");
+				const gutter = " ".repeat(labelWidth + 2);
+				const date = dates[index]!;
+				const middle = label + " ".repeat(labelWidth - visibleWidth(label) + 2) + "│" + painted + "│  "
+					+ " ".repeat(percentWidth - visibleWidth(percent)) + percent + "  "
+					+ " ".repeat(dateWidth - visibleWidth(date)) + theme.fg(window.resetAt !== null && window.resetAt <= now ? "warning" : "dim", date);
+				return [...(index ? [""] : []), gutter + `╭${"─".repeat(tubeWidth)}╮`, middle, gutter + `╰${"─".repeat(tubeWidth)}╯`];
+			});
+		} else {
+			// Narrow screens retain the existing compact, wrapped presentation.
+			quota = sections.quota.map((line, index) => {
+				const window = windows[Math.floor(index / 2)];
+				if (!window) return paint(line);
+				if (index % 2) return theme.fg(window.resetAt !== null && window.resetAt <= now ? "warning" : "dim",
+					" ".repeat(labelWidth + 2) + `重置 ${dates[Math.floor(index / 2)]}`);
+				const label = windowLabel(window);
+				return label + " ".repeat(labelWidth - visibleWidth(label)) + line.slice(label.length);
+			});
+			const overhead = Math.max(0, ...quota.filter((_line, index) => windows.length && index % 2 === 0).map((line) => visibleWidth(line) - 36));
+			const barWidth = Math.max(1, Math.min(36, detailWidth - overhead));
+			for (let index = 0; index < windows.length; index++) {
+				const window = windows[index]!;
+				const line = quota[index * 2]!.replace(/[█░]+/, quotaBar(window.remainingPercent, barWidth, true));
+				const color = statusLine({ ...state, snapshot: { ...state.snapshot!, windows: [window] } }, now).color;
+				quota[index * 2] = line.split(/([█░]+)/).map((part) => isLowQuota(window.remainingPercent) && /[█░]/.test(part)
+					? theme.style(part, { fg: lowQuotaColor }) : theme.fg(color, part)).join("");
+			}
 		}
 		const title = "🍧 Codex 额度";
 		const summaryFits = framed && sections.summary !== null
@@ -182,12 +212,42 @@ export class QuotaPanel {
 		const blocks: string[][] = [];
 		if (!summaryFits && sections.summary) blocks.push(group([theme.fg("dim", sections.summary)], contentWidth));
 		if (sections.status.length) blocks.push(group(sections.status.map((line) => theme.fg(state.error || state.stale ? "warning" : "dim", line)), contentWidth));
-		if (quota.length) blocks.push(card([...group([heading("订阅额度", HEADING_COLORS.quota)]), ...group(quota)]));
-		const resets = [
-			...group([heading(`重置卡 · ${sections.resetSummary}`, HEADING_COLORS.cards)]),
-			...group(sections.resets.map(paint)),
-		];
+		if (quota.length) blocks.push(card(group([heading("订阅额度", HEADING_COLORS.quota), ...(useTubes && windows.length ? [""] : []), ...quota])));
 		const reset = state.resetCredits;
+		const resetColumns = Math.min(46, detailWidth);
+		const resetPair = (left: string, right: string) => pair(left, right, resetColumns);
+		const resetHeading = resetPair("🎟 " + heading("重置卡", HEADING_COLORS.cards), theme.fg("dim", sections.resetSummary));
+		const notes = "仅显示接口返回记录，不推断完整历史。";
+		const detail = sections.resets.slice();
+		const records = state.phase === "offline" || state.phase === "not_logged_in" ? undefined : reset?.snapshot?.credits;
+		if (records?.length) {
+			// The source section places result/error notices before two lines per record.
+			// Group only adjacent records of identical type and status, keeping original
+			// indexes and the server's ordering for the subsequent selection dialog.
+			const start = Number(!!state.resetUse) + Number(!!reset?.error);
+			const labels = { available: "可用", used: "已使用", expired: "已过期", pending: "使用中", unknown: "状态未知" };
+			const grouped: string[] = [];
+			let previous = "";
+			for (const [index, record] of records.entries()) {
+				const key = `${record.fullReset}:${record.status}`;
+				if (key !== previous) {
+					if (grouped.length) grouped.push("");
+					grouped.push(resetPair(`${record.fullReset ? "完全重置" : "重置卡"} · ${labels[record.status]}`,
+						record.fullReset ? "7d + 5h" : ""));
+					previous = key;
+				}
+				const time = record.status === "used" ? record.redeemedAt : record.expiresAt;
+				const left = `#${index + 1} ${record.status === "used" ? "使用" : "到期"} ${localTime(time)}`;
+				const right = record.status !== "available" ? "" : time === null ? "有效期未知"
+					: time <= now ? "已到期，待刷新" : resetRemaining(time, now);
+				grouped.push(right ? resetPair(left, right) : left);
+			}
+			detail.splice(start, records.length * 2, ...grouped);
+		}
+		const showNote = detail.includes(notes);
+		const resets = [
+			...group([resetHeading, ...(cards ? [""] : []), ...detail.filter((line) => line !== notes).map(paint)]),
+		];
 		const freshEmpty = button.reason === "no_usable_cards" && state.phase === "ready" && !state.stale && !state.error
 			&& !reset?.stale && !reset?.error && reset?.snapshot?.availableCount === 0
 			&& reset.snapshot.credits?.length === 0 && !state.resetUse?.warning;
@@ -198,19 +258,20 @@ export class QuotaPanel {
 		const styledButton = theme.style(truncateToWidth(label, detailWidth), button.enabled ? { fg: "accent", bold: true }
 			: button.phase === "busy" ? { fg: "warning" } : { fg: "dim" });
 		resets.push(center(styledButton, detailWidth));
+		if (showNote) resets.push(...group([theme.fg("dim", notes)]));
 		blocks.push(card(resets));
 		const oauth = usesCodexSubscription(this.ctx);
 		const fast = this.fast.summary(this.ctx.model, oauth);
 		const metrics = this.fast.panelMetrics(this.ctx.model, oauth);
 		const columns = Math.min(36, detailWidth);
-		const pair = (left: string, right: string) => left + " ".repeat(Math.max(2, columns - visibleWidth(left) - visibleWidth(right))) + right;
+		const fastPair = (left: string, right: string) => pair(left, right, columns);
 		const unavailable = this.fast.enabled && this.fast.capability.kind !== "supported";
 		blocks.push(card([
 			...group([
-				pair("⚡ " + heading("Fast", HEADING_COLORS.fast), theme.fg(unavailable ? "warning" : "text", fast.switchLabel)),
+				fastPair("⚡ " + heading("Fast", HEADING_COLORS.fast), theme.fg(unavailable ? "warning" : "text", fast.switchLabel)),
 				...(cards ? [""] : []),
-				pair("订阅额度消耗", metrics.quota),
-				pair("模型速度", metrics.speed),
+				fastPair("订阅额度消耗", metrics.quota),
+				fastPair("模型速度", metrics.speed),
 				...(cards ? [""] : []),
 			]),
 			center(theme.fg("dim", "仅当前会话"), detailWidth),

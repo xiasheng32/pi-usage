@@ -684,8 +684,8 @@ test("dashboard orders quota, reset cards with their button, Fast, and a time-on
 	const positions = ["订阅额度", "重置卡", "#1", "#3", "[u 重置]", "Fast", "已开启", "订阅额度消耗", "模型速度", "仅当前会话", "更新于"].map((part) => text.indexOf(part));
 	assert.ok(positions.every((position, index) => position >= 0 && (!index || position > positions[index - 1]!)), text);
 	assert.match(lines[1]!, /🍧 Codex 额度.*PLUS.*可用/);
-	assert.match(text, /剩余 75%/);
-	assert.match(text, /到期：2026-10-/);
+	assert.match(text, /5h\s+│[█░]+│\s+75%/);
+	assert.match(text, /#1 到期 2026-10-/);
 	assert.equal(lines.filter((line) => line.includes("[u 重置]")).length, 1);
 	assert.equal(lines.filter((line) => line.includes("更新于")).length, 1);
 	assert.match(lines.at(-2)!, /更新于 \d{2}:\d{2} · 本机时区/);
@@ -698,11 +698,11 @@ test("dashboard orders quota, reset cards with their button, Fast, and a time-on
 	controller.dispose();
 });
 
-test("zero-card dashboard centers three compact cards, aligned 36-column bars and a simple disabled key", (t: TestContext) => {
+test("zero-card dashboard aligns 20-column tubes, preserves rounded cards and a centered disabled key", (t: TestContext) => {
 	const now = Date.UTC(2026, 9, 15, 11, 6);
 	t.mock.method(Date, "now", () => now);
 	const h = harness();
-	h.terminal.rows = 32;
+	h.terminal.rows = 64;
 	const state = panelState(now, 0);
 	state.snapshot!.windows[0]!.remainingPercent = 100;
 	state.snapshot!.windows[1]!.remainingPercent = 54;
@@ -717,21 +717,19 @@ test("zero-card dashboard centers three compact cards, aligned 36-column bars an
 		assert.ok(line.startsWith("│ │ ") && line.endsWith(" │ │"), line);
 		return line.slice(4, -4);
 	};
-	for (const heading of ["订阅额度", "重置卡 · 可用 0 张", "暂无卡片记录", "[重置不可用]", "仅当前会话"]) {
-		const line = lines.find((entry) => entry.includes(heading));
-		assert.ok(line, `missing ${heading}`);
-		const inner = innerOf(line!);
-		assert.equal(inner.trim(), heading);
+	for (const heading of ["订阅额度", "🎟 重置卡", "可用 0 张", "暂无卡片记录", "[重置不可用]", "仅当前会话"]) {
+		assert.ok(lines.some((line) => line.includes(heading)), `missing ${heading}`);
+	}
+	for (const heading of ["[重置不可用]", "仅当前会话"]) {
+		const inner = innerOf(lines.find((line) => line.includes(heading))!);
 		assert.equal(inner.length - inner.trimStart().length, Math.floor((60 - visibleWidth(heading)) / 2), heading);
 	}
 	const mains = lines.filter((line) => /[█░]/.test(line)).map(innerOf);
 	assert.equal(mains.length, 2);
-	assert.deepEqual(mains.map((line) => line.match(/[█░]+/)![0].length), [36, 36]);
-	const barColumn = mains[0]!.search(/[█░]/);
-	assert.equal(mains[1]!.search(/[█░]/), barColumn);
-	for (const line of lines.filter((line) => line.includes("↻"))) assert.equal(innerOf(line).indexOf("↻"), barColumn);
-	const widest = Math.max(...mains.map((line) => visibleWidth(line.trim())));
-	assert.equal(mains[0]!.indexOf("5h"), Math.floor((60 - widest) / 2));
+	assert.deepEqual(mains.map((line) => line.match(/[█░]+/)![0].length), [20, 20]);
+	assert.equal(mains[0]!.search(/[█░]/), mains[1]!.search(/[█░]/));
+	assert.equal(mains[0]!.indexOf("%"), mains[1]!.indexOf("%"));
+	assert.doesNotMatch(text, /后重置|↻/);
 	assert.equal(lines.filter((line) => line.includes("│ ╭")).length, 3);
 	assert.equal(lines.filter((line) => /^│ +│$/.test(line)).length, 2, "one blank row between cards, none inside");
 	assert.equal(lines.filter((line) => line.includes("更新于")).length, 1);
@@ -739,7 +737,64 @@ test("zero-card dashboard centers three compact cards, aligned 36-column bars an
 	assert.equal(footer.length - footer.trimStart().length, Math.floor((64 - visibleWidth(footer.trim())) / 2));
 	assert.equal(text.split("[重置不可用]").length - 1, 1);
 	assert.doesNotMatch(text, /┌|┐|└|┘|已用|不推断|结果未决/);
-	assert.ok(lines.length <= 32);
+	assert.ok(lines.length <= 64);
+	controller.dispose();
+});
+
+test("tube percentages and reset dates align; unknown and overdue reset times remain explicit", (t: TestContext) => {
+	const now = Date.UTC(2026, 9, 15, 11, 6);
+	t.mock.method(Date, "now", () => now);
+	const h = harness();
+	h.terminal.rows = 80;
+	const state = panelState(now, 0);
+	state.snapshot!.windows[0]!.remainingPercent = 0.2;
+	state.snapshot!.windows[0]!.resetAt = now - 60_000;
+	state.snapshot!.windows[1]!.resetAt = null;
+	const controller = new QuotaController({ offline: true, resolveAuth: async () => { throw new Error("Unexpected credentials"); } });
+	t.mock.method(controller, "getState", () => state);
+	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, new FastModeController());
+	const output = panel.render(68).join("\n");
+	assert.match(output, /5h\s+│[█░]{20}│\s+<1%\s+待刷新/);
+	assert.match(output, /7d\s+│[█░]{20}│\s+96%\s+重置时间未知/);
+	assert.doesNotMatch(output, /后重置/);
+	h.terminal.rows = 15;
+	panel.handleInput("\x1b[H");
+	assert.doesNotMatch(panel.render(68).join("\n"), /后重置/);
+	controller.dispose();
+});
+
+test("reset groups preserve consecutive type, status, indexes, expired dates and source warnings", (t: TestContext) => {
+	const now = Date.UTC(2026, 9, 15, 11, 6);
+	t.mock.method(Date, "now", () => now);
+	const h = harness();
+	h.terminal.rows = 100;
+	const state = panelState(now, 6);
+	const base = state.resetCredits!.snapshot!.credits![0]!;
+	state.resetCredits!.snapshot!.credits = [
+		{ ...base }, { ...base, expiresAt: null }, { ...base, status: "used", redeemedAt: now - 60_000 },
+		{ ...base, fullReset: false, status: "expired" }, { ...base, status: "available", expiresAt: now - 1 },
+		{ ...base, status: "pending" },
+	];
+	state.resetCredits!.error = { kind: "network" };
+	state.resetUse = { message: "重置结果不确定，请刷新", warning: true };
+	const controller = new QuotaController({ offline: true, resolveAuth: async () => { throw new Error("Unexpected credentials"); } });
+	t.mock.method(controller, "getState", () => state);
+	t.mock.method(controller, "getResetButton", () => ({ enabled: false, phase: "disabled" as const, hint: "不可用原因" }));
+	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, new FastModeController());
+	const lines = panel.render(68);
+	const text = lines.join("\n");
+	const groups = ["完全重置 · 可用", "完全重置 · 已使用", "重置卡 · 已过期", "完全重置 · 使用中"];
+	for (const title of groups) assert.ok(text.includes(title), title);
+	assert.equal(text.split("完全重置 · 可用").length - 1, 2, "nonadjacent groups remain separate");
+	for (let index = 1; index <= 6; index++) assert.equal(text.split(`#${index} `).length - 1, 1, `record ${index}`);
+	assert.match(text, /#2 到期 未知.*有效期未知/);
+	assert.match(text, /#3 使用 2026-/);
+	assert.match(text, /#5 到期 .*已到期，待刷新/);
+	assert.match(text, /重置结果不确定，请刷新/);
+	assert.match(text, /查询失败；明细为过期缓存/);
+	assert.match(text, /仅显示接口返回记录，不推断完整历史/);
+	assert.ok(text.indexOf("[重置不可用]") < text.indexOf("仅显示接口返回记录"));
+	assert.ok(lines.every((line) => visibleWidth(line) <= 68));
 	controller.dispose();
 });
 
@@ -817,12 +872,13 @@ test("bars shrink together for long labels and cards fall back on narrow or shor
 		const lengths = bars.map((line) => line.match(/[█░]+/)![0].length);
 		assert.equal(lengths[0], lengths[1]);
 		assert.ok(lengths[0]! >= 1 && lengths[0]! <= 36);
-		if (width === 68) assert.equal(lengths[0], 36);
+		if (width === 68 && rows >= 24) assert.equal(lengths[0], 20);
+		else if (width === 68) assert.equal(lengths[0], 36);
 		else assert.ok(lengths[0]! < 36);
 		const columns = bars.map((line) => visibleWidth(line.slice(0, line.search(/[█░]/))));
 		assert.equal(columns[0], columns[1], "wide labels keep visible terminal columns aligned");
 		assert.ok(lines.some((line) => line.includes("30d10h")));
-		assert.match(lines.join("\n"), /剩余 <1%/);
+		assert.match(lines.join("\n"), /<1%/);
 		assert.equal(lines.some((line) => line.includes("│ ╭")), framedCards);
 		assert.ok(lines.every((line) => visibleWidth(line) <= width));
 	}
@@ -867,7 +923,7 @@ test("the three section headings take distinct rgb colors per theme appearance",
 		return text;
 	});
 	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, new FastModeController());
-	const headings = ["订阅额度", "重置卡 · 可用 3 张", "Fast"];
+	const headings = ["订阅额度", "重置卡", "Fast"];
 	const expected = {
 		dark: [rgbColor(94, 234, 212), rgbColor(196, 181, 253), rgbColor(56, 189, 248)],
 		light: [rgbColor(15, 118, 110), rgbColor(109, 40, 217), rgbColor(2, 132, 199)],
