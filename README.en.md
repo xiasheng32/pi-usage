@@ -31,7 +31,7 @@
 
 Requires Node.js >=22.19 and a pi build with the extension API (full offline suite on **1.2.0**, plus dynamic-catalog and lifecycle checks on **1.4.0**). No runtime dependencies are installed; pi provides the host packages.
 
-1.4.0 aligns the Codex detail card headings, places reset records and Fast metrics in individual rounded boxes, and moves reset actions to `/reset` with card selection and confirmation. It preserves the host dynamic model catalog and refresh capability. Fast decorates host provider requests; it does not determine `/model` contents. Fast capabilities are still queried on demand and cached, not fetched unconditionally at every startup or used to show only Fast-capable models. Missing required host APIs leave the catalog untouched and only produce a Fast installation warning.
+1.5.0 places the reset-card and Fast sections side by side when space permits, retaining all three rounded section frames and stacking them on narrow terminals. 1.4.0 placed reset records and Fast metrics in individual rounded boxes and moved reset actions to `/reset` with card selection and confirmation. It preserves the host dynamic model catalog and refresh capability. Fast decorates host provider requests; it does not determine `/model` contents. Fast capabilities are still queried on demand and cached, not fetched unconditionally at every startup or used to show only Fast-capable models. Missing required host APIs leave the catalog untouched and only produce a Fast installation warning.
 
 ```bash
 pi install git:github.com/xiasheng32/pi-usage
@@ -63,9 +63,9 @@ pi install git:github.com/xiasheng32/pi-usage
 - `/fast on` enables Codex Fast (priority routing, subscription quota consumed at 2.5×) and `/fast off` disables it; both apply to the current session only.
 - Without credentials the footer reads `🐳 DeepSeek 未配置` / `🌙 Kimi 未配置` or reports an expired Codex login, and the panel explains how to fix it.
 
-### Codex detail layout (1.4.0)
+### Codex detail layout (1.5.0)
 
-- Three lightweight cards for subscription quota, reset cards and Fast, with teal, purple and blue headings and just one blank row between sections.
+- Three separately rounded cards for subscription quota, reset cards and Fast, with teal, purple and blue headings. Quota stays above; at 68 columns and at least 24 terminal rows, reset is on the left and Fast on the right; otherwise they stack.
 - Horizontal test tubes align window labels, approximate fill, exact remaining percentages and local reset dates. The reset countdown is removed from the panel; same-year dates omit the year, cross-year dates retain it, and unknown or overdue times stay explicit. Narrow or shorter-than-24-row terminals fall back to compact bars.
 - Reset-card title and count are colored separately; records appear in individually centered, equal-width rounded boxes, preserving original indexes, dates and distinct states. Returned records are not treated as a complete history; errors and outcomes remain visible.
 - Fast mode shows green `on` or red `off`, with quota consumption and model speed in a centered rounded box. Off shows ×1.0; on shows the ×2.5 subscription reference and the speed advertised by the official model catalog, falling back to the official GPT-5.6 ×1.5 reference or “未提供” when unknown. Multipliers are relative to Standard, not measured speed or actual billing; purchased credits have a different rate. See the [official guide](https://learn.chatgpt.com/docs/agent-configuration/speed). Use `/fast on` / `/fast off` to change the switch. The update footer remains fixed and every card record is scrollable.

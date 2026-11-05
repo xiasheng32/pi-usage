@@ -665,7 +665,7 @@ function panelState(now: number, count = 3): QuotaState {
 	};
 }
 
-test("dashboard orders quota, reset cards with their button, Fast, and a time-only footer", (t: TestContext) => {
+test("dashboard shows quota above paired reset and Fast cards with a time-only footer", (t: TestContext) => {
 	const now = Date.UTC(2026, 9, 15, 11, 6);
 	t.mock.method(Date, "now", () => now);
 	const h = harness();
@@ -681,8 +681,12 @@ test("dashboard orders quota, reset cards with their button, Fast, and a time-on
 	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, fast);
 	const lines = panel.render(68);
 	const text = lines.join("\n");
-	const positions = ["订阅额度", "重置卡", "#1", "#3", "Fast mode", "on", "额度消耗", "模型速度", "仅当前会话", "更新于"].map((part) => text.indexOf(part));
-	assert.ok(positions.every((position, index) => position >= 0 && (!index || position > positions[index - 1]!)), text);
+	const headings = lines.find((line) => line.includes("重置卡"))!;
+	assert.match(headings, /重置卡.*Fast mode.*on/);
+	assert.ok(lines.findIndex((line) => line.includes("订阅额度")) < lines.indexOf(headings));
+	assert.ok(text.includes("#1") && text.includes("#3") && text.includes("仅当前会话"));
+	const frame = lines[lines.indexOf(headings) - 1]!;
+	assert.match(frame, /╭─+╮  ╭─+╮/, "both sections retain separate rounded frames");
 	assert.match(lines[1]!, /Codex 额度.*PLUS.*可用/);
 	assert.match(text, /5h\s+│[█░]+│\s+75%/);
 	assert.match(text, /#1\s+到期 10-/);
@@ -695,6 +699,44 @@ test("dashboard orders quota, reset cards with their button, Fast, and a time-on
 	assert.match(lines[fastStart + 3]!, /额度消耗\s+×2\.5/);
 	assert.match(lines[fastStart + 4]!, /模型速度\s+未提供/);
 	assert.match(lines[fastStart + 7]!, /仅当前会话/);
+	controller.dispose();
+});
+
+test("paired sections preserve wrapped warnings, independent frames, scrolling and narrow fallback", (t: TestContext) => {
+	const h = harness();
+	const state = panelState(Date.now(), 8);
+	const message = "重置结果不确定，请检查服务端状态并重新刷新额度与卡片明细。".repeat(2);
+	state.resetUse = { message, warning: true };
+	const controller = new QuotaController({ offline: true, resolveAuth: async () => { throw new Error("Unexpected credentials"); } });
+	t.mock.method(controller, "getState", () => state);
+	t.mock.method(controller, "getResetButton", () => ({ enabled: false, phase: "disabled" as const, hint: "请检查状态" }));
+	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, new FastModeController());
+	h.terminal.rows = 120;
+	const wide = panel.render(68);
+	const headingIndex = wide.findIndex((line) => line.includes("重置卡"));
+	assert.match(wide[headingIndex]!, /重置卡.*Fast mode/);
+	assert.match(wide[headingIndex - 1]!, /╭─+╮  ╭─+╮/);
+	assert.ok(wide.some((line) => /╰─+╯  ╰─+╯/.test(line)));
+	const leftText = wide.slice(headingIndex).map((line) => line.split("│")[2] ?? "").join("").replace(/\s/g, "");
+	assert.ok(leftText.includes(message), "wrapped warning survives in the left column");
+	for (let index = 1; index <= 8; index++) assert.ok(wide.some((line) => line.includes(`#${index} `)));
+	assert.ok(wide.every((line) => visibleWidth(line) <= 68));
+	const narrow = panel.render(67);
+	assert.ok(!narrow.some((line) => line.includes("重置卡") && line.includes("Fast mode")));
+	assert.ok(narrow.findIndex((line) => line.includes("重置卡")) < narrow.findIndex((line) => line.includes("Fast mode")));
+	h.terminal.rows = 26;
+	panel.handleInput("\x1b[H");
+	const footer = panel.render(68).at(-2);
+	let scrolled = "";
+	for (let index = 0; index < 80; index++) {
+		const lines = panel.render(68);
+		assert.equal(lines.at(-2), footer);
+		assert.ok(lines.length <= h.terminal.rows);
+		scrolled += lines.join("\n");
+		panel.handleInput("\x1b[B");
+	}
+	assert.match(scrolled, /#8/);
+	assert.match(scrolled, /仅当前会话/);
 	controller.dispose();
 });
 
@@ -720,18 +762,17 @@ test("zero-card dashboard aligns 20-column tubes, preserves rounded cards and a 
 	for (const heading of ["订阅额度", "重置卡", "可用 0 张", "暂无卡片记录", "仅当前会话"]) {
 		assert.ok(lines.some((line) => line.includes(heading)), `missing ${heading}`);
 	}
-	for (const heading of ["仅当前会话"]) {
-		const inner = innerOf(lines.find((line) => line.includes(heading))!);
-		assert.equal(inner.length - inner.trimStart().length, Math.floor((60 - visibleWidth(heading)) / 2), heading);
-	}
+	const note = lines.find((line) => line.includes("仅当前会话"))!;
+	const rightContent = note.split("│")[4]!;
+	assert.equal(visibleWidth(rightContent.slice(1, rightContent.indexOf("仅当前会话"))), Math.floor((27 - visibleWidth("仅当前会话")) / 2));
 	const mains = lines.filter((line) => /[█░]/.test(line)).map(innerOf);
 	assert.equal(mains.length, 2);
 	assert.deepEqual(mains.map((line) => line.match(/[█░]+/)![0].length), [20, 20]);
 	assert.equal(mains[0]!.search(/[█░]/), mains[1]!.search(/[█░]/));
 	assert.equal(mains[0]!.indexOf("%"), mains[1]!.indexOf("%"));
 	assert.doesNotMatch(text, /后重置|↻/);
-	assert.equal(lines.filter((line) => line.includes("│ ╭")).length, 3);
-	assert.equal(lines.filter((line) => /^│ +│$/.test(line)).length, 2, "one blank row between cards, none inside");
+	assert.ok(lines.some((line) => /╭─+╮  ╭─+╮/.test(line)), "reset and Fast have separate frames");
+	assert.equal(lines.filter((line) => /^│ +│$/.test(line)).length, 1, "one blank row separates quota from the paired cards");
 	assert.equal(lines.filter((line) => line.includes("更新于")).length, 1);
 	const footer = lines.at(-2)!.slice(2, -2);
 	assert.equal(footer.length - footer.trimStart().length, Math.floor((64 - visibleWidth(footer.trim())) / 2));
@@ -781,7 +822,7 @@ test("individual reset boxes preserve type, status, indexes, expired dates and w
 	t.mock.method(controller, "getState", () => state);
 	t.mock.method(controller, "getResetButton", () => ({ enabled: false, phase: "disabled" as const, hint: "不可用原因" }));
 	const panel = new QuotaPanel(h.tui, h.ctx, controller, () => {}, new FastModeController());
-	const lines = panel.render(68);
+	const lines = panel.render(64);
 	const text = lines.join("\n");
 	for (let index = 1; index <= 6; index++) assert.equal(text.split(`#${index} `).length - 1, 1, `record ${index}`);
 	assert.match(text, /#2\s+到期 未知.*有效期未知/);
@@ -816,14 +857,14 @@ test("Fast card aligns reference rates, centers session note and keeps rounded b
 		assert.match(quota, enabled ? /×2\.5/ : /×1\.0/);
 		assert.match(speed, enabled ? /×2\.0/ : /×1\.0/);
 		assert.equal(visibleWidth(quota.slice(0, quota.indexOf("×"))), visibleWidth(speed.slice(0, speed.indexOf("×"))));
-		const inner = note.slice(4, -4);
-		assert.equal(inner.length - inner.trimStart().length, Math.floor((60 - visibleWidth("仅当前会话")) / 2));
+		const rightContent = note.split("│")[4]!;
+		assert.equal(visibleWidth(rightContent.slice(1, rightContent.indexOf("仅当前会话"))), Math.floor((27 - visibleWidth("仅当前会话")) / 2));
 		assert.doesNotMatch(lines.join("\n"), /最近响应|服务端 Fast|服务端标准/);
 	}
 	controller.dispose();
 });
 
-test("all card headings align, records and metrics are centered, and switch colors reflect state", (t: TestContext) => {
+test("paired headings, centered records and metrics, and switch colors reflect state", (t: TestContext) => {
 	const h = harness();
 	h.terminal.rows = 90;
 	const state = panelState(Date.now(), 3);
@@ -844,7 +885,8 @@ test("all card headings align, records and metrics are centered, and switch colo
 			const line = lines.find((entry) => entry.includes(name))!;
 			return visibleWidth(line.slice(0, line.indexOf(name)));
 		});
-		assert.deepEqual(columns, [columns[0], columns[0], columns[0]]);
+		assert.ok(columns[1]! < columns[2]!, "reset is left of Fast");
+		assert.equal(lines.findIndex((line) => line.includes("重置卡")), lines.findIndex((line) => line.includes("Fast mode")));
 		assert.equal(calls.find((call) => call.text === (enabled ? "on" : "off"))?.color, enabled ? "success" : "error");
 		assert.equal(calls.find((call) => call.text === "可用 3 张")?.color, "success");
 		const recordIndexes = [1, 2, 3].map((index) => lines.findIndex((line) => line.includes(`#${index} `)));
@@ -988,7 +1030,7 @@ test("reset results and disabled or busy hints stay inside the card section with
 	for (const phase of ["disabled", "busy"] as const) {
 		const hint = phase === "busy" ? "正在处理，请勿重复操作" : "数据不可用，请先刷新明细";
 		t.mock.method(controller, "getResetButton", () => ({ enabled: false, phase, hint }));
-		const text = panel.render(68).join("\n");
+		const text = panel.render(64).join("\n");
 		const cardStart = text.indexOf("重置卡");
 		const fastStart = text.indexOf("Fast");
 		for (const message of [state.resetUse.message, hint]) {
@@ -998,7 +1040,7 @@ test("reset results and disabled or busy hints stay inside the card section with
 	}
 	state.resetUse = { message: "数据不可用，请先刷新明细", warning: true };
 	t.mock.method(controller, "getResetButton", () => ({ enabled: false, phase: "disabled" as const, hint: state.resetUse!.message }));
-	assert.equal(panel.render(68).join("\n").split(state.resetUse.message).length - 1, 1);
+	assert.equal(panel.render(64).join("\n").split(state.resetUse.message).length - 1, 1);
 	controller.dispose();
 });
 

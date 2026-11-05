@@ -147,12 +147,13 @@ export class QuotaPanel {
 			if (line.startsWith("   ") || /不推断|未提供/.test(line)) return theme.fg("dim", line);
 			return line;
 		};
-		const card = (lines: string[]): string[] => {
+		const card = (lines: string[], columns = contentWidth): string[] => {
 			if (!cards) return lines;
+			const inner = columns - 4;
 			return [
-				theme.fg("dim", `╭${"─".repeat(contentWidth - 2)}╮`),
-				...lines.map((line) => theme.fg("dim", "│") + ` ${line}${" ".repeat(Math.max(0, detailWidth - visibleWidth(line)))} ` + theme.fg("dim", "│")),
-				theme.fg("dim", `╰${"─".repeat(contentWidth - 2)}╯`),
+				theme.fg("dim", `╭${"─".repeat(columns - 2)}╮`),
+				...lines.map((line) => theme.fg("dim", "│") + ` ${line}${" ".repeat(Math.max(0, inner - visibleWidth(line)))} ` + theme.fg("dim", "│")),
+				theme.fg("dim", `╰${"─".repeat(columns - 2)}╯`),
 			];
 		};
 		const windows = sections.quota.length ? state.snapshot?.windows ?? [] : [];
@@ -222,20 +223,28 @@ export class QuotaPanel {
 		const spacious = cards && rows >= 24;
 		const gap = spacious ? [""] : [];
 		// Center the entire box, not each wrapped line; every line is width-bounded.
-		const centeredBox = (lines: string[], boxWidth: number): string[] => {
-			if (!spacious || detailWidth < 12) return group(lines);
-			const width = Math.max(6, Math.min(detailWidth, boxWidth));
+		const centeredBox = (lines: string[], boxWidth: number, columns = detailWidth): string[] => {
+			if (!spacious || columns < 12) return group(lines, columns);
+			const width = Math.max(6, Math.min(columns, boxWidth));
 			const inner = width - 4;
 			const wrapped = lines.flatMap((line) => wrapTextWithAnsi(line, inner));
 			const border = (s: string) => theme.fg("dim", s);
 			const result = [border(`╭${"─".repeat(width - 2)}╮`), ...wrapped.map((line) => border("│") + ` ${line}${" ".repeat(Math.max(0, inner - visibleWidth(line)))} ` + border("│")), border(`╰${"─".repeat(width - 2)}╯`)];
-			return result.map((line) => center(line, detailWidth));
+			return result.map((line) => center(line, columns));
 		};
 		if (quota.length) blocks.push(card(align([heading("订阅额度", HEADING_COLORS.quota), ...gap, ...quota, ...gap])));
+		// At full overlay width, each section keeps its own rounded frame. Narrow
+		// or short terminals retain the existing stacked, compact layout.
+		const sideBySide = width >= 68 && rows >= 24;
+		const sectionWidth = sideBySide ? Math.floor((contentWidth - 2) / 2) : contentWidth;
+		const sectionDetail = sideBySide ? sectionWidth - 4 : detailWidth;
+		const sectionAlign = (lines: string[]) => sideBySide
+			? lines.flatMap((line) => wrapTextWithAnsi(line, sectionDetail)) : align(lines);
+		const headingWidth = sideBySide ? sectionDetail : sharedWidth;
 		const reset = state.resetCredits;
 		const countColor = /过期缓存/.test(sections.resetSummary) ? "warning"
 			: /^可用 [1-9]\d* 张$/.test(sections.resetSummary) ? "success" : "dim";
-		const resetHeading = pair(heading("重置卡", HEADING_COLORS.cards), theme.fg(countColor, sections.resetSummary), sharedWidth);
+		const resetHeading = pair(heading("重置卡", HEADING_COLORS.cards), theme.fg(countColor, sections.resetSummary), headingWidth);
 		const notes = "仅显示接口返回记录，不推断完整历史。";
 		const detail = sections.resets.slice();
 		const records = state.phase === "offline" || state.phase === "not_logged_in" ? undefined : reset?.snapshot?.credits;
@@ -257,31 +266,39 @@ export class QuotaPanel {
 					record.status === "available" && time !== null && time <= now ? "已到期，待刷新" : ""].filter(Boolean);
 				return `#${index + 1}  ${record.status === "used" ? "使用" : "到期"} ${date}${flags.length ? ` · ${flags.join(" · ")}` : ""}`;
 			});
-			const boxWidth = Math.min(detailWidth, Math.max(30, ...texts.map((text) => visibleWidth(text) + 4)));
-			recordBoxes = texts.flatMap((text) => centeredBox([paint(text)], boxWidth));
+			const boxWidth = Math.min(sectionDetail, Math.max(30, ...texts.map((text) => visibleWidth(text) + 4)));
+			recordBoxes = texts.flatMap((text) => centeredBox([paint(text)], boxWidth, sectionDetail));
 		}
-		const resets = [...align([resetHeading]), ...gap, ...align(before.map(paint)), ...recordBoxes, ...align(after.map(paint))];
+		const resets = [...sectionAlign([resetHeading]), ...gap, ...sectionAlign(before.map(paint)), ...recordBoxes, ...sectionAlign(after.map(paint))];
 		const freshEmpty = button.reason === "no_usable_cards" && state.phase === "ready" && !state.stale && !state.error
 			&& !reset?.stale && !reset?.error && reset?.snapshot?.availableCount === 0
 			&& reset.snapshot.credits?.length === 0 && !state.resetUse?.warning;
 		if (!button.enabled && !freshEmpty && !sections.resets.some((line) => line.trim() === button.hint)) {
-			resets.push(...align([theme.fg(button.phase === "busy" ? "dim" : "warning", button.hint)]));
+			resets.push(...sectionAlign([theme.fg(button.phase === "busy" ? "dim" : "warning", button.hint)]));
 		}
-		blocks.push(card([...resets, ...gap]));
+		const resetLines = [...resets, ...gap];
 		const oauth = usesCodexSubscription(this.ctx);
 		const metrics = this.fast.panelMetrics(this.ctx.model, oauth);
 		const unavailable = this.fast.enabled && (!oauth || this.fast.capability.kind !== "supported");
 		const stateLabel = !this.fast.enabled ? "off" : !oauth ? "on · 不适用"
 			: this.fast.capability.kind === "unsupported" ? "on · 不可用" : this.fast.capability.kind === "unknown" ? "on · 能力未知" : "on";
 		const stateColor = unavailable ? "warning" : this.fast.enabled ? "success" : "error";
-		const fastHeading = pair(heading("Fast mode", HEADING_COLORS.fast), theme.fg(stateColor, stateLabel), sharedWidth);
-		const boxWidth = Math.min(34, detailWidth);
+		const fastHeading = pair(heading("Fast mode", HEADING_COLORS.fast), theme.fg(stateColor, stateLabel), headingWidth);
+		const boxWidth = Math.min(34, sectionDetail);
 		const metricWidth = Math.max(1, boxWidth - 4);
-		blocks.push(card([
-			...align([fastHeading]), ...gap,
-			...centeredBox([pair("额度消耗", metrics.quota, metricWidth), pair("模型速度", metrics.speed, metricWidth)], boxWidth),
-			...gap, center(theme.fg("dim", "仅当前会话"), detailWidth), ...gap,
-		]));
+		const fastLines = [
+			...sectionAlign([fastHeading]), ...gap,
+			...centeredBox([pair("额度消耗", metrics.quota, metricWidth), pair("模型速度", metrics.speed, metricWidth)], boxWidth, sectionDetail),
+			...gap, center(theme.fg("dim", "仅当前会话"), sectionDetail), ...gap,
+		];
+		if (sideBySide) {
+			const height = Math.max(resetLines.length, fastLines.length);
+			const left = card([...resetLines, ...Array(height - resetLines.length).fill("")], sectionWidth);
+			const right = card([...fastLines, ...Array(height - fastLines.length).fill("")], sectionWidth);
+			blocks.push(left.map((line, index) => `${line}  ${right[index]}`));
+		} else {
+			blocks.push(card(resetLines), card(fastLines));
+		}
 		const content = blocks.flatMap((block, index) => index ? ["", ...block] : block);
 		const bodyHeight = height - (framed ? 6 : 1);
 		this.maxOffset = Math.max(0, content.length - bodyHeight);

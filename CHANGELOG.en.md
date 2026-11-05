@@ -2,6 +2,12 @@
 
 [简体中文](CHANGELOG.md) | [English](CHANGELOG.en.md)
 
+## [1.5.0] - 2026-11-05
+
+- The Codex dashboard keeps three separately rounded quota, reset and Fast section frames. Reset and Fast appear side by side on wide terminals and stack on narrow or short terminals.
+- Preserves rounded record and metric boxes, warnings, scrolling and the fixed update footer.
+- Verified with `npm run check` (type checking and 268 tests), `npm pack --dry-run` and `git diff --check`.
+
 ## [1.4.0] - 2026-11-05
 
 - The Codex panel removes emoji and aligns all three card headings with the quota heading. The reset title and count are colored separately; each record appears in a centered, equal-width rounded box with its index, time and exceptional status preserved.
